@@ -2,6 +2,8 @@ from unittest import mock
 
 from django.conf import settings
 from django.db import connection, models
+from django.db.models import F
+from django.db.models.functions import Lower, Upper
 from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
 from django.test.utils import isolate_apps
 
@@ -27,6 +29,7 @@ class SimpleIndexesTests(SimpleTestCase):
             name='opclasses_idx',
             opclasses=['varchar_pattern_ops', 'text_pattern_ops'],
         )
+        func_index = models.Index(Lower('title'), name='book_func_idx')
         self.assertEqual(repr(index), "<Index: fields='title'>")
         self.assertEqual(repr(multi_col_index), "<Index: fields='title, author'>")
         self.assertEqual(repr(partial_index), "<Index: fields='title' condition=(AND: ('pages__gt', 400))>")
@@ -39,6 +42,7 @@ class SimpleIndexesTests(SimpleTestCase):
             "<Index: fields='headline, body' "
             "opclasses='varchar_pattern_ops, text_pattern_ops'>",
         )
+        self.assertEqual(repr(func_index), "<Index: expressions='Lower(F(title))'>")
 
     def test_eq(self):
         index = models.Index(fields=['title'])
@@ -51,6 +55,14 @@ class SimpleIndexesTests(SimpleTestCase):
         self.assertEqual(index, mock.ANY)
         self.assertNotEqual(index, another_index)
 
+    def test_eq_func(self):
+        index = models.Index(Lower('title'), F('author'), name='book_func_idx')
+        same_index = models.Index(Lower('title'), 'author', name='book_func_idx')
+        another_index = models.Index(Lower('title'), name='book_func_idx')
+        self.assertEqual(index, same_index)
+        self.assertEqual(index, mock.ANY)
+        self.assertNotEqual(index, another_index)
+
     def test_index_fields_type(self):
         with self.assertRaisesMessage(ValueError, 'Index.fields must be a list or tuple.'):
             models.Index(fields='title')
@@ -58,8 +70,8 @@ class SimpleIndexesTests(SimpleTestCase):
     def test_fields_tuple(self):
         self.assertEqual(models.Index(fields=('title',)).fields, ['title'])
 
-    def test_raises_error_without_field(self):
-        msg = 'At least one field is required to define an index.'
+    def test_raises_error_without_field_or_expression(self):
+        msg = 'At least one field or expression is required to define an index.'
         with self.assertRaisesMessage(ValueError, msg):
             models.Index()
 
@@ -76,9 +88,18 @@ class SimpleIndexesTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, msg):
             models.Index(name='test_opclass', fields=['field', 'other'], opclasses=['jsonb_path_ops'])
 
+    def test_opclasses_and_expressions_same_length(self):
+        msg = 'Index arguments and Index.opclasses must have the same number of elements.'
+        with self.assertRaisesMessage(ValueError, msg):
+            models.Index(Upper('field'), Upper('other'), name='test_opclass', opclasses=['jsonb_path_ops'])
+
     def test_condition_requires_index_name(self):
         with self.assertRaisesMessage(ValueError, 'An index must be named to use condition.'):
             models.Index(condition=models.Q(pages__gt=400))
+
+    def test_fields_expressions_requires_index_name(self):
+        with self.assertRaisesMessage(ValueError, 'Index.name needs to be set when passed expressions.'):
+            models.Index(Lower('field'))
 
     def test_condition_must_be_q(self):
         with self.assertRaisesMessage(ValueError, 'Index.condition must be a Q instance.'):
@@ -93,6 +114,16 @@ class SimpleIndexesTests(SimpleTestCase):
         msg = 'A covering index must be named.'
         with self.assertRaisesMessage(ValueError, msg):
             models.Index(fields=['field'], include=['other'])
+
+    def test_both_expressions_and_fields(self):
+        msg = "'fields' cannot be used together with expressions."
+        with self.assertRaisesMessage(ValueError, msg):
+            models.Index(Upper('foo'), fields=['field'])
+
+    def test_expression_in_fields(self):
+        msg = 'Index.fields must only contain strings.'
+        with self.assertRaisesMessage(ValueError, msg):
+            models.Index(fields=['field', Upper('foo')])
 
     def test_name_auto_generation(self):
         index = models.Index(fields=['author'])
@@ -175,6 +206,16 @@ class SimpleIndexesTests(SimpleTestCase):
                 'include': ('author',),
             },
         )
+
+    def test_deconstruct_with_expressions(self):
+        index = models.Index(
+            Upper('title'),
+            name='book_expression_idx',
+        )
+        path, args, kwargs = index.deconstruct()
+        self.assertEqual(path, 'django.db.models.Index')
+        self.assertEqual(args, (Upper('title'),))
+        self.assertEqual(kwargs, {'name': 'book_expression_idx'})
 
     def test_clone(self):
         index = models.Index(fields=['title'])

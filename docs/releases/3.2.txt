@@ -366,6 +366,8 @@ Models
   guarantees that changes made in the atomic block will be committed if the
   block exits without errors. A nested atomic block marked as durable will
   raise a ``RuntimeError``.
+* Added expression support through Django's expression API for
+   :class:`class-based indexes <django.db.models.Index>`.
 
 Pagination
 ~~~~~~~~~~

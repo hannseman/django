@@ -71,6 +71,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         'non_default': 'SWEDISH_CI',
         'swedish_ci': 'SWEDISH_CI',
     }
+    supports_expression_indexes = True
 
     @cached_property
     def introspected_field_types(self):

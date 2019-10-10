@@ -2,10 +2,11 @@ import logging
 from datetime import datetime
 
 from django.db.backends.ddl_references import (
-    Columns, ForeignKeyName, IndexName, Statement, Table,
+    Columns, ForeignKeyName, IndexExpressions, IndexName, Statement, Table,
 )
 from django.db.backends.utils import names_digest, split_identifier
 from django.db.models import Deferrable, Index
+from django.db.models.sql import Query
 from django.db.transaction import TransactionManagementError, atomic
 from django.utils import timezone
 
@@ -354,10 +355,14 @@ class BaseDatabaseSchemaEditor:
 
     def add_index(self, model, index):
         """Add an index on a model."""
+        if index.contains_expressions and not self.connection.features.supports_expression_indexes:
+            return None
         self.execute(index.create_sql(model, self), params=None)
 
     def remove_index(self, model, index):
         """Remove an index from a model."""
+        if index.contains_expressions and not self.connection.features.supports_expression_indexes:
+            return None
         self.execute(index.remove_sql(model, self))
 
     def add_constraint(self, model, constraint):
@@ -407,7 +412,7 @@ class BaseDatabaseSchemaEditor:
         # Created indexes
         for field_names in news.difference(olds):
             fields = [model._meta.get_field(field) for field in field_names]
-            self.execute(self._create_index_sql(model, fields, suffix="_idx"))
+            self.execute(self._create_index_sql(model, fields=fields, suffix='_idx'))
 
     def _delete_composed_index(self, model, fields, constraint_kwargs, sql):
         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
@@ -778,7 +783,7 @@ class BaseDatabaseSchemaEditor:
         # False              | True             | True               | False
         # True               | True             | True               | False
         if (not old_field.db_index or old_field.unique) and new_field.db_index and not new_field.unique:
-            self.execute(self._create_index_sql(model, [new_field]))
+            self.execute(self._create_index_sql(model, fields=[new_field]))
         # Type alteration on primary key? Then we need to alter the column
         # referring to us.
         rels_to_update = []
@@ -990,14 +995,21 @@ class BaseDatabaseSchemaEditor:
             columns=Columns(model._meta.db_table, columns, self.quote_name),
         )
 
-    def _create_index_sql(self, model, fields, *, name=None, suffix='', using='',
+    def _create_index_sql(self, model, *, fields=None, name=None, suffix='', using='',
                           db_tablespace=None, col_suffixes=(), sql=None, opclasses=(),
-                          condition=None, include=None):
+                          condition=None, include=None, expressions=None):
         """
-        Return the SQL statement to create the index for one or several fields.
+        Return the SQL statement to create the index for one or several fields or expressions.
         `sql` can be specified if the syntax differs from the standard (GIS
         indexes, ...).
         """
+        fields = fields or []
+        expressions = expressions or []
+        compiler = self.connection.ops.compiler('SQLCompiler')(
+            query=Query(model, alias_cols=False),
+            connection=self.connection,
+            using=using
+        )
         tablespace_sql = self._get_index_tablespace_sql(model, fields, db_tablespace=db_tablespace)
         columns = [field.column for field in fields]
         sql_create_index = sql or self.sql_create_index
@@ -1014,7 +1026,13 @@ class BaseDatabaseSchemaEditor:
             table=Table(table, self.quote_name),
             name=IndexName(table, columns, suffix, create_index_name),
             using=using,
-            columns=self._index_columns(table, columns, col_suffixes, opclasses),
+            columns=(
+                self._index_columns(table, columns, col_suffixes, opclasses)
+                if columns
+                else IndexExpressions(
+                    table, expressions, compiler, self.quote_value, opclasses
+                )
+            ),
             extra=tablespace_sql,
             condition=self._index_condition_sql(condition),
             include=self._index_include_sql(model, include),
@@ -1043,10 +1061,13 @@ class BaseDatabaseSchemaEditor:
 
         for field_names in model._meta.index_together:
             fields = [model._meta.get_field(field) for field in field_names]
-            output.append(self._create_index_sql(model, fields, suffix="_idx"))
+            output.append(self._create_index_sql(model, fields=fields, suffix='_idx'))
 
         for index in model._meta.indexes:
-            output.append(index.create_sql(model, self))
+            if index.contains_expressions and not self.connection.features.supports_expression_indexes:
+                continue
+            else:
+                output.append(index.create_sql(model, self))
         return output
 
     def _field_indexes_sql(self, model, field):
@@ -1055,7 +1076,7 @@ class BaseDatabaseSchemaEditor:
         """
         output = []
         if self._field_should_be_indexed(model, field):
-            output.append(self._create_index_sql(model, [field]))
+            output.append(self._create_index_sql(model, fields=[field]))
         return output
 
     def _field_should_be_altered(self, old_field, new_field):

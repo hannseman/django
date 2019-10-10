@@ -173,3 +173,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         if self.connection.mysql_is_mariadb:
             return self.supports_json_field and self.can_introspect_check_constraints
         return self.supports_json_field
+
+    @cached_property
+    def supports_expression_indexes(self):
+        return not self.connection.mysql_is_mariadb and self.connection.mysql_version >= (8, 0, 13)

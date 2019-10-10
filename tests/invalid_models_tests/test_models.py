@@ -3,7 +3,7 @@ import unittest
 from django.core.checks import Error, Warning
 from django.core.checks.model_checks import _check_lazy_references
 from django.db import connection, connections, models
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower, Upper
 from django.db.models.signals import post_init
 from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
 from django.test.utils import isolate_apps, override_settings, register_lookup
@@ -494,6 +494,34 @@ class IndexesTests(TestCase):
                 ]
 
         self.assertEqual(Model.check(databases=self.databases), [])
+
+    def test_index_with_expressions(self):
+        class Model(models.Model):
+            name = models.TextField()
+
+            class Meta:
+                indexes = [
+                    models.Index(
+                        Upper('name'),
+                        name='index_upper_name',
+                    ),
+                ]
+
+        errors = Model.check(databases=self.databases)
+        expected = (
+            []
+            if connection.features.supports_expression_indexes
+            else [
+                Warning(
+                    '%s does not support indexes on expressions.'
+                    % connection.display_name,
+                    hint="An index won't be created. Silence this warning if you don't care about it.",
+                    obj=Model,
+                    id='models.W042',
+                )
+            ]
+        )
+        self.assertEqual(errors, expected)
 
 
 @isolate_apps('invalid_models_tests')

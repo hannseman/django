@@ -1,4 +1,5 @@
 from django.db.backends.utils import names_digest, split_identifier
+from django.db.models.expressions import F
 from django.db.models.query_utils import Q
 from django.db.models.sql import Query
 
@@ -13,7 +14,7 @@ class Index:
 
     def __init__(
         self,
-        *,
+        *expressions,
         fields=(),
         name=None,
         db_tablespace=None,
@@ -31,25 +32,43 @@ class Index:
             raise ValueError('Index.fields must be a list or tuple.')
         if not isinstance(opclasses, (list, tuple)):
             raise ValueError('Index.opclasses must be a list or tuple.')
-        if opclasses and len(fields) != len(opclasses):
-            raise ValueError('Index.fields and Index.opclasses must have the same number of elements.')
-        if not fields:
-            raise ValueError('At least one field is required to define an index.')
+        if not expressions and not fields:
+            raise ValueError('At least one field or expression is required to define an index.')
+        if fields and not all(isinstance(field, str) for field in fields):
+            raise ValueError('Index.fields must only contain strings.')
+        if expressions and fields:
+            raise ValueError("'fields' cannot be used together with expressions.")
+        if expressions and not name:
+            raise ValueError('Index.name needs to be set when passed expressions.')
+        if opclasses:
+            if expressions and len(expressions) != len(opclasses):
+                raise ValueError('Index arguments and Index.opclasses must have the same number of elements.')
+            elif fields and len(fields) != len(opclasses):
+                raise ValueError('Index.fields and Index.opclasses must have the same number of elements.')
         if include and not name:
             raise ValueError('A covering index must be named.')
         if not isinstance(include, (type(None), list, tuple)):
             raise ValueError('Index.include must be a list or tuple.')
         self.fields = list(fields)
-        # A list of 2-tuple with the field name and ordering ('' or 'DESC').
-        self.fields_orders = [
-            (field_name[1:], 'DESC') if field_name.startswith('-') else (field_name, '')
-            for field_name in self.fields
-        ]
         self.name = name or ''
         self.db_tablespace = db_tablespace
         self.opclasses = opclasses
         self.condition = condition
         self.include = tuple(include) if include else ()
+
+        self.field_names = [
+            field_name.lstrip('-')
+            for field_name in self.fields
+        ]
+        # TODO: Do we need to keep original args for `deconstruct()` or can we convert strings to `F()`?
+        self.expressions = tuple(
+            F(expression) if isinstance(expression, str) else expression
+            for expression in expressions
+        )
+
+    @property
+    def contains_expressions(self):
+        return bool(self.expressions)
 
     def _get_condition_sql(self, model, schema_editor):
         if self.condition is None:
@@ -60,15 +79,36 @@ class Index:
         sql, params = where.as_sql(compiler, schema_editor.connection)
         return sql % tuple(schema_editor.quote_value(p) for p in params)
 
+    def _get_ordered_field(self, model, field_name):
+        """
+        Return the field for supplied name and an optional ordering
+        """
+        field_name, order = (
+            (field_name[1:], 'DESC') if field_name.startswith('-') else (field_name, '')
+        )
+        field = model._meta.get_field(field_name)
+        return field, order
+
+    def _get_field_orders(self, model):
+        """
+        Return fields together with their ordering
+        """
+        fields = []
+        for field in self.fields:
+            fields.append(self._get_ordered_field(model, field))
+        return fields
+
     def create_sql(self, model, schema_editor, using='', **kwargs):
-        fields = [model._meta.get_field(field_name) for field_name, _ in self.fields_orders]
+        col_suffixes = fields = None
+        if self.fields:
+            field_orders = self._get_field_orders(model)
+            fields, col_suffixes = zip(*field_orders)
         include = [model._meta.get_field(field_name).column for field_name in self.include]
-        col_suffixes = [order[1] for order in self.fields_orders]
         condition = self._get_condition_sql(model, schema_editor)
         return schema_editor._create_index_sql(
-            model, fields, name=self.name, using=using, db_tablespace=self.db_tablespace,
+            model, fields=fields, name=self.name, using=using, db_tablespace=self.db_tablespace,
             col_suffixes=col_suffixes, opclasses=self.opclasses, condition=condition,
-            include=include, **kwargs,
+            include=include, expressions=self.expressions, **kwargs,
         )
 
     def remove_sql(self, model, schema_editor, **kwargs):
@@ -77,7 +117,9 @@ class Index:
     def deconstruct(self):
         path = '%s.%s' % (self.__class__.__module__, self.__class__.__name__)
         path = path.replace('django.db.models.indexes', 'django.db.models')
-        kwargs = {'fields': self.fields, 'name': self.name}
+        kwargs = {'name': self.name}
+        if self.fields:
+            kwargs['fields'] = self.fields
         if self.db_tablespace is not None:
             kwargs['db_tablespace'] = self.db_tablespace
         if self.opclasses:
@@ -86,12 +128,12 @@ class Index:
             kwargs['condition'] = self.condition
         if self.include:
             kwargs['include'] = self.include
-        return (path, (), kwargs)
+        return (path, self.expressions, kwargs)
 
     def clone(self):
         """Create a copy of this Index."""
-        _, _, kwargs = self.deconstruct()
-        return self.__class__(**kwargs)
+        _, args, kwargs = self.deconstruct()
+        return self.__class__(*args, **kwargs)
 
     def set_name_with_model(self, model):
         """
@@ -102,10 +144,10 @@ class Index:
         fit its size by truncating the excess length.
         """
         _, table_name = split_identifier(model._meta.db_table)
-        column_names = [model._meta.get_field(field_name).column for field_name, order in self.fields_orders]
+        column_names = [model._meta.get_field(field_name).column for field_name in self.field_names]
         column_names_with_order = [
-            (('-%s' if order else '%s') % column_name)
-            for column_name, (field_name, order) in zip(column_names, self.fields_orders)
+            (('-%s' if field.startswith('-') else '%s') % column_name)
+            for column_name, field in zip(column_names, self.fields)
         ]
         # The length of the parts of the name is based on the default max
         # length of 30 characters.
@@ -123,8 +165,10 @@ class Index:
             self.name = 'D%s' % self.name[1:]
 
     def __repr__(self):
-        return "<%s: fields='%s'%s%s%s>" % (
-            self.__class__.__name__, ', '.join(self.fields),
+        return '<%s:%s%s%s%s%s>' % (
+            self.__class__.__name__,
+            '' if not self.fields else " fields='%s'" % ', '.join(self.fields),
+            '' if not self.expressions else " expressions='%s'" % ', '.join(map(str, self.expressions)),
             '' if self.condition is None else ' condition=%s' % self.condition,
             '' if not self.include else " include='%s'" % ', '.join(self.include),
             '' if not self.opclasses else " opclasses='%s'" % ', '.join(self.opclasses),

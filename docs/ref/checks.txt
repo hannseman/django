@@ -378,6 +378,7 @@ Models
 * **models.W040**: ``<database>`` does not support indexes with non-key
   columns.
 * **models.E041**: ``constraints`` refers to the joined field ``<field name>``.
+* **models.W042**: ``<database>`` does not support indexes on expressions.
 
 Security
 --------

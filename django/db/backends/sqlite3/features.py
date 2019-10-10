@@ -49,6 +49,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         'cs': 'binary',
         'non_default': 'nocase',
     }
+    supports_expression_indexes = Database.sqlite_version_info >= (3, 9, 0)
 
     @cached_property
     def supports_atomic_references_rename(self):

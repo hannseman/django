@@ -321,6 +321,9 @@ class BaseDatabaseFeatures:
         'swedish_ci': None  # Swedish case-insensitive.
     }
 
+    # Does the backend support indexes on expressions?
+    supports_expression_indexes = False
+
     def __init__(self, connection):
         self.connection = connection
 

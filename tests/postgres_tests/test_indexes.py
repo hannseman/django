@@ -5,13 +5,17 @@ from django.contrib.postgres.indexes import (
     SpGistIndex,
 )
 from django.db import NotSupportedError, connection
-from django.db.models import CharField, Q
-from django.db.models.functions import Length
+from django.db.models import CharField, Index, IntegerField, Q
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Length, Lower
 from django.test import skipUnlessDBFeature
 from django.test.utils import register_lookup
 
 from . import PostgreSQLSimpleTestCase, PostgreSQLTestCase
-from .models import CharFieldModel, IntegerArrayModel, Scene
+from .fields import SearchVector, SearchVectorField
+from .models import (
+    CharFieldModel, HotelReservation, IntegerArrayModel, Scene, TextFieldModel,
+)
 
 
 class IndexTestMixin:
@@ -27,6 +31,13 @@ class IndexTestMixin:
         self.assertEqual(path, 'django.contrib.postgres.indexes.%s' % self.index_class.__name__)
         self.assertEqual(args, ())
         self.assertEqual(kwargs, {'fields': ['title'], 'name': 'test_title_%s' % self.index_class.suffix})
+
+    def test_deconstruction_with_expressions_no_customization(self):
+        index = self.index_class(Lower('title'), name='test_title_%s' % self.index_class.suffix)
+        path, args, kwargs = index.deconstruct()
+        self.assertEqual(path, 'django.contrib.postgres.indexes.%s' % self.index_class.__name__)
+        self.assertEqual(args, (Lower('title'),))
+        self.assertEqual(kwargs, {'name': 'test_title_%s' % self.index_class.suffix})
 
 
 class BloomIndexTests(IndexTestMixin, PostgreSQLSimpleTestCase):
@@ -455,3 +466,75 @@ class SchemaTests(PostgreSQLTestCase):
         with connection.schema_editor() as editor:
             editor.remove_index(CharFieldModel, index)
         self.assertNotIn(index_name, self.get_constraints(CharFieldModel._meta.db_table))
+
+    def test_func_index_with_jsonb_key_transform(self):
+        index = Index(KeyTransform('some_key', 'requirements'), name='jsonb_key_btree')
+        with connection.schema_editor() as editor:
+            editor.add_index(HotelReservation, index)
+            self.assertIn('->', str(index.create_sql(HotelReservation, editor)))
+        self.assertIn(index.name, self.get_constraints(HotelReservation._meta.db_table))
+        with connection.schema_editor() as editor:
+            editor.remove_index(HotelReservation, index)
+        self.assertNotIn(index.name, self.get_constraints(HotelReservation._meta.db_table))
+
+    def test_func_index_with_jsonb_cast_key_transform(self):
+        index = Index(Cast(KeyTextTransform('some_key', 'requirements'), IntegerField()), name='jsonb_key_btree')
+        with connection.schema_editor() as editor:
+            editor.add_index(HotelReservation, index)
+            sql = index.create_sql(HotelReservation, editor)
+        table = HotelReservation._meta.db_table
+        self.assertIn(index.name, self.get_constraints(table))
+        self.assertIs(sql.references_column(table, 'requirements'), True)
+        self.assertIn('->', str(sql))
+        with connection.schema_editor() as editor:
+            editor.remove_index(HotelReservation, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
+    def test_func_index_cast_search_vector(self):
+        index = GinIndex(Cast('field', SearchVectorField()), name='search_vector_cast')
+        with connection.schema_editor() as editor:
+            editor.add_index(TextFieldModel, index)
+            sql = index.create_sql(TextFieldModel, editor)
+        table = TextFieldModel._meta.db_table
+        constraints = self.get_constraints(table)
+        self.assertIn(index.name, constraints)
+        self.assertIn(constraints[index.name]['type'], GinIndex.suffix)
+        self.assertIs(sql.references_column(table, 'field'), True)
+        self.assertIn('::tsvector', str(sql))
+        with connection.schema_editor() as editor:
+            editor.remove_index(TextFieldModel, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
+    def test_func_index_search_vector(self):
+        index = GinIndex(SearchVector('scene', 'setting', config='english'), name='search_vector')
+        with connection.schema_editor() as editor:
+            editor.add_index(Scene, index)
+            sql = index.create_sql(Scene, editor)
+        table = Scene._meta.db_table
+        constraints = self.get_constraints(table)
+        self.assertIn(index.name, constraints)
+        self.assertIn(constraints[index.name]['type'], GinIndex.suffix)
+        self.assertIs(sql.references_column(table, 'scene'), True)
+        self.assertIs(sql.references_column(table, 'setting'), True)
+        with connection.schema_editor() as editor:
+            editor.remove_index(TextFieldModel, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
+    def test_func_index_with_tablespace(self):
+        index = Index(
+            Lower('field').desc(),
+            name='func_tablespace',
+            db_tablespace='pg_default'
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(TextFieldModel, index)
+            sql = index.create_sql(TextFieldModel, editor)
+        table = TextFieldModel._meta.db_table
+        self.assertIn('TABLESPACE "pg_default"', str(sql))
+        constraints = self.get_constraints(table)
+        self.assertIn(index.name, constraints)
+        self.assertListEqual(constraints[index.name]['orders'], ['DESC'])
+        self.assertIs(sql.references_column(table, 'field'), True)
+        with connection.schema_editor() as editor:
+            editor.remove_index(TextFieldModel, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
