@@ -301,4 +301,11 @@ class Migration(migrations.Migration):
                 'required_db_vendor': 'postgresql',
             },
         ),
+        migrations.CreateModel(
+            name='JSONModel',
+            fields=[
+                ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
+                ('field', models.JSONField()),
+            ],
+        ),
     ]

@@ -125,7 +125,12 @@ class CastTests(TestCase):
         The SQL for the Cast expression is wrapped with parentheses in case
         it's a complex expression.
         """
-        list(Author.objects.annotate(cast_float=Cast(models.Avg('age'), models.FloatField())))
+        Author.objects.create(name='Alice', age=24, alias='2')
+        average_age = Author.objects.aggregate(
+            cast_float=Cast(models.Avg('age'), models.FloatField())
+        )['cast_float']
+        self.assertIsInstance(average_age, float)
+        self.assertEqual(average_age, 12.5)
         self.assertIn('(AVG("db_functions_author"."age"))::double precision', connection.queries[-1]['sql'])
 
     def test_cast_to_text_field(self):

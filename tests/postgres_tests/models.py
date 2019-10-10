@@ -190,3 +190,7 @@ class HotelReservation(PostgreSQLModel):
     start = models.DateTimeField()
     end = models.DateTimeField()
     cancelled = models.BooleanField(default=False)
+
+
+class JSONModel(models.Model):
+    field = models.JSONField()

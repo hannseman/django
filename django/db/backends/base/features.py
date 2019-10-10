@@ -299,6 +299,12 @@ class BaseDatabaseFeatures:
     # Does the backend use PostgreSQL-style JSON operators like '->'?
     has_json_operators = False
 
+    # Does the backend support indexes on expressions?
+    supports_expression_indexes = True
+
+    # Does the backend support indexes on columns with expression syntax?
+    supports_expression_indexes_on_columns = True
+
     def __init__(self, connection):
         self.connection = connection
 

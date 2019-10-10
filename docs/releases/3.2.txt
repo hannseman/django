@@ -192,6 +192,9 @@ Models
   attributes allow creating covering indexes and covering unique constraints on
   PostgreSQL 11+.
 
+* Added expression support through Django's expression API for
+   :attr:`class-based indexes <django.db.models.Index.fields>`.
+
 Requests and Responses
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -273,6 +276,9 @@ backends.
 * To enable support for covering indexes (:attr:`.Index.include`) and covering
   unique constraints (:attr:`.UniqueConstraint.include`), set
   ``DatabaseFeatures.supports_covering_indexes`` to ``True``.
+
+* Third party database backends must implement support for expression indexes
+  or set ``DatabaseFeatures.supports_expression_indexes`` to ``False``.
 
 :mod:`django.contrib.gis`
 -------------------------
