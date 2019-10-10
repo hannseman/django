@@ -66,6 +66,19 @@ class Index:
             field for field in self.fields if isinstance(field, (BaseExpression, F))
         ]
 
+        self.field_name_expressions = [
+            field_name
+            for field_name in self.fields
+            if isinstance(field_name, str)
+        ]
+        self.field_names = [
+            field_name.lstrip('-')
+            for field_name in self.field_name_expressions
+        ]
+        self.expressions = [
+            field for field in self.fields if isinstance(field, (BaseExpression, F))
+        ]
+
     def _get_condition_sql(self, model, schema_editor):
         if self.condition is None:
             return None

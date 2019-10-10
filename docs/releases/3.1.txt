@@ -371,6 +371,9 @@ Models
   * ``TREE`` format on MySQL 8.0.16+,
   * ``analyze`` option on MySQL 8.0.18+ and MariaDB.
 
+* Added expression support through Django's expression API for
+   :attr:`class-based indexes <django.db.models.Index.fields>`.
+
 * Added :class:`~django.db.models.PositiveBigIntegerField` which acts much like
   a :class:`~django.db.models.PositiveIntegerField` except that it only allows
   values under a certain (database-dependent) limit. Values from ``0`` to
@@ -562,6 +565,8 @@ backends.
 
 * Third party database backends must implement introspection for ``JSONField``
   or set ``can_introspect_json_field`` to ``False``.
+* Third party database backends must implement support for expression indexes
+  or set ``DatabaseFeatures.supports_expression_indexes`` to ``False``.
 
 Dropped support for MariaDB 10.1
 --------------------------------
