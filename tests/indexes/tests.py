@@ -3,6 +3,7 @@ from unittest import skipIf, skipUnless
 
 from django.db import connection
 from django.db.models import CASCADE, ForeignKey, Index, Q
+from django.db.models.functions import Lower
 from django.test import (
     TestCase, TransactionTestCase, skipIfDBFeature, skipUnlessDBFeature,
 )
@@ -295,6 +296,52 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
                 str(index.create_sql(Article, editor)),
             )
 
+    def test_ops_class_func_index(self):
+        index_name = 'test_ops_class_func_index'
+        index = Index(
+            name=index_name,
+            fields=[Lower('body')],
+            opclasses=['text_pattern_ops'],
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(IndexedArticle2, index)
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query % index_name)
+            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
+
+    def test_ops_class_partial_func_index(self):
+        index_name = 'test_ops_class_partial_func_index'
+        index = Index(
+            name=index_name,
+            fields=[Lower('body')],
+            opclasses=['text_pattern_ops'],
+            condition=Q(headline__contains='China'),
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(IndexedArticle2, index)
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query % index_name)
+            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
+
+    def test_ops_class_partial_descending_tablespace_func_index(self):
+        index_name = 'test_ops_class_partial_tablespace_func_index'
+        index = Index(
+            name=index_name,
+            fields=[Lower('body').desc()],
+            opclasses=['text_pattern_ops'],
+            condition=Q(headline__contains='China'),
+            db_tablespace='pg_default',
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(IndexedArticle2, index)
+            self.assertIn(
+                'TABLESPACE "pg_default" ',
+                str(index.create_sql(IndexedArticle2, editor))
+            )
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query % index_name)
+            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
+
 
 @skipUnless(connection.vendor == 'mysql', 'MySQL tests')
 class SchemaIndexesMySQLTests(TransactionTestCase):
@@ -452,6 +499,43 @@ class PartialIndexTests(TransactionTestCase):
                     cursor=cursor, table_name=Article._meta.db_table,
                 ))
             editor.remove_index(index=index, model=Article)
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index(self):
+        """
+        Test creating a partial functional index
+        """
+        # Define the index
+        index_name = 'partial_func_idx'
+        index = Index(
+            fields=[Lower('headline').desc()],
+            name=index_name,
+            condition=Q(pub_date__isnull=False),
+        )
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(index=index, model=Article)
+            sql = index.create_sql(Article, schema_editor=editor)
+            sql = str(sql).upper()
+
+        # Ensure the index is there
+        self.assertIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        ))
+
+        # Check that the vital SQL parts are there
+        self.assertIn('LOWER(', sql)
+        self.assertIn('HEADLINE', sql)
+        self.assertIn(
+            'WHERE %s IS NOT NULL' % editor.quote_name('pub_date').upper(), sql
+        )
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Article, index)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        ))
 
 
 @skipUnlessDBFeature('supports_covering_indexes')

@@ -1,4 +1,8 @@
+import warnings
+
+from django.db import NotSupportedError
 from django.db.backends.utils import names_digest, split_identifier
+from django.db.models.expressions import BaseExpression, F
 from django.db.models.query_utils import Q
 from django.db.models.sql import Query
 
@@ -39,17 +43,28 @@ class Index:
             raise ValueError('A covering index must be named.')
         if not isinstance(include, (type(None), list, tuple)):
             raise ValueError('Index.include must be a list or tuple.')
+        if any(isinstance(field, (BaseExpression, F)) for field in fields) and not name:
+            raise ValueError('Index.name needs to be set when fields contain expressions.')
+
         self.fields = list(fields)
-        # A list of 2-tuple with the field name and ordering ('' or 'DESC').
-        self.fields_orders = [
-            (field_name[1:], 'DESC') if field_name.startswith('-') else (field_name, '')
-            for field_name in self.fields
-        ]
         self.name = name or ''
         self.db_tablespace = db_tablespace
         self.opclasses = opclasses
         self.condition = condition
         self.include = tuple(include) if include else ()
+
+        self.field_name_expressions = [
+            field_name
+            for field_name in self.fields
+            if isinstance(field_name, str)
+        ]
+        self.field_names = [
+            field_name.lstrip('-')
+            for field_name in self.field_name_expressions
+        ]
+        self.expressions = [
+            field for field in self.fields if isinstance(field, (BaseExpression, F))
+        ]
 
     def _get_condition_sql(self, model, schema_editor):
         if self.condition is None:
@@ -60,10 +75,91 @@ class Index:
         sql, params = where.as_sql(compiler, schema_editor.connection)
         return sql % tuple(schema_editor.quote_value(p) for p in params)
 
-    def create_sql(self, model, schema_editor, using='', **kwargs):
-        fields = [model._meta.get_field(field_name) for field_name, _ in self.fields_orders]
+    def _get_ordered_expression(self, model, schema_editor, using, expression):
+        """
+        Return the SQL for supplied expression and an optional ordering.
+        """
+        suffix = ''
+        query = Query(model, alias_cols=False)
+        connection = schema_editor.connection
+        compiler = connection.ops.compiler('SQLCompiler')(query, connection, using)
+        expression = expression.resolve_expression(query)
+        # Check if expression is ordered and extract the ordering as a suffix
+        if expression.ordered:
+            suffix = 'DESC' if expression.descending else 'ASC'
+            expression = expression.get_source_expressions()[0]
+        expression_sql, params = compiler.compile(expression)
+        params = tuple(map(schema_editor.quote_value, params))
+        # Wrap expression in parentheses
+        expression_sql = '(%s)' % expression_sql
+        return expression_sql % params, suffix
+
+    def _get_ordered_field(self, model, field_name):
+        """
+        Return the field for supplied name and an optional ordering
+        """
+        field_name, order = (
+            (field_name[1:], 'DESC') if field_name.startswith('-') else (field_name, '')
+        )
+        field = model._meta.get_field(field_name)
+        return field, order
+
+    def _get_field_orders(self, model, schema_editor, using):
+        """
+        Return fields and expressions together with their ordering
+        """
+        fields = []
+        for field in self.fields:
+            if field in self.expressions:
+                field, order = self._get_ordered_expression(
+                    model, schema_editor, using, field
+                )
+            else:
+                field, order = self._get_ordered_field(model, field)
+            fields.append((field, order))
+        return fields
+
+    def _validate_supports_expression_indexes(self, schema_editor):
+        """
+        Validate that database supports supplied expressions
+        """
+        connection = schema_editor.connection
+        supports_expression_indexes = connection.features.supports_expression_indexes
+        for column_expression in self.expressions:
+            if (
+                not supports_expression_indexes and
+                hasattr(column_expression, 'flatten') and
+                any(
+                    isinstance(expr, (BaseExpression, F))
+                    for expr in column_expression.flatten()
+                )
+            ):
+                raise NotSupportedError(
+                    (
+                        'Not creating expression index:\n'
+                        '   {expression}\n'
+                        'Expression indexes are not supported on {vendor}.'
+                    ).format(
+                        expression=column_expression, vendor=connection.display_name
+                    )
+                )
+
+    def create_sql(self, model, schema_editor, using="", **kwargs):
+        try:
+            self._validate_supports_expression_indexes(schema_editor)
+        except NotSupportedError as e:
+            # While it's an error on platforms w/o support for expression
+            # indexes to create one, the presence of an index is often not
+            # required. Thus, we're raising a warning instead of blowing up.
+            # That also seems to be the only way to allow 3rd party packages
+            # using expression indexes while supporting all databases for
+            # everything else.
+            warnings.warn(str(e), RuntimeWarning)
+            return None
+        field_orders = self._get_field_orders(model, schema_editor, using)
+        fields = [field[0] for field in field_orders]
         include = [model._meta.get_field(field_name).column for field_name in self.include]
-        col_suffixes = [order[1] for order in self.fields_orders]
+        col_suffixes = [order[1] for order in field_orders]
         condition = self._get_condition_sql(model, schema_editor)
         return schema_editor._create_index_sql(
             model, fields, name=self.name, using=using, db_tablespace=self.db_tablespace,
@@ -102,10 +198,12 @@ class Index:
         fit its size by truncating the excess length.
         """
         _, table_name = split_identifier(model._meta.db_table)
-        column_names = [model._meta.get_field(field_name).column for field_name, order in self.fields_orders]
+        column_names = [model._meta.get_field(field_name).column for field_name in self.field_names]
         column_names_with_order = [
-            (('-%s' if order else '%s') % column_name)
-            for column_name, (field_name, order) in zip(column_names, self.fields_orders)
+            (('-%s' if field_name_expresion.startswith('-') else '%s') % column_name)
+            for column_name, field_name_expresion in zip(
+                column_names, self.field_name_expressions
+            )
         ]
         # The length of the parts of the name is based on the default max
         # length of 30 characters.
@@ -124,7 +222,7 @@ class Index:
 
     def __repr__(self):
         return "<%s: fields='%s'%s%s%s>" % (
-            self.__class__.__name__, ', '.join(self.fields),
+            self.__class__.__name__, ', '.join(map(str, self.fields)),
             '' if self.condition is None else ' condition=%s' % self.condition,
             '' if not self.include else " include='%s'" % ', '.join(self.include),
             '' if not self.opclasses else " opclasses='%s'" % ', '.join(self.opclasses),

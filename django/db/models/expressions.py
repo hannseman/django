@@ -257,6 +257,10 @@ class BaseExpression:
         return isinstance(self.output_field, fields.BooleanField)
 
     @property
+    def ordered(self):
+        return isinstance(self, OrderBy)
+
+    @property
     def field(self):
         return self.output_field
 

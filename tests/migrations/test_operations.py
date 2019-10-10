@@ -5,6 +5,7 @@ from django.db import (
 from django.db.migrations.migration import Migration
 from django.db.migrations.operations.fields import FieldOperation
 from django.db.migrations.state import ModelState, ProjectState
+from django.db.models.functions import Abs
 from django.db.transaction import atomic
 from django.test import SimpleTestCase, override_settings, skipUnlessDBFeature
 
@@ -1938,6 +1939,75 @@ class OperationTests(OperationTestBase):
         operation.state_forwards('test_rminsf', new_state)
         new_model = new_state.apps.get_model('test_rminsf', 'Pony')
         self.assertIsNot(old_model, new_model)
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_add_expression_index(self):
+        index_name = "test_adfunin_abs_weight_idx"
+        project_state = self.set_up_test_model("test_adfunin")
+        index = models.Index(fields=[Abs("weight")], name=index_name)
+        operation = migrations.AddIndex("Pony", index)
+        self.assertEqual(
+            operation.describe(),
+            "Create index {} on field(s) Abs(F(weight)) of model Pony".format(index_name)
+        )
+        new_state = project_state.clone()
+        operation.state_forwards("test_adfunin", new_state)
+        # Test the database alteration
+        self.assertEqual(len(new_state.models["test_adfunin", "pony"].options['indexes']), 1)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_adfunin_pony",
+        ))
+        with connection.schema_editor() as editor:
+            operation.database_forwards("test_adfunin", editor, project_state, new_state)
+        self.assertIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_adfunin_pony",
+        ))
+        # And test reversal
+        with connection.schema_editor() as editor:
+            operation.database_backwards("test_adfunin", editor, new_state, project_state)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_adfunin_pony",
+        ))
+        # And deconstruction
+        definition = operation.deconstruct()
+        self.assertEqual(definition[0], "AddIndex")
+        self.assertEqual(definition[1], [])
+        self.assertEqual(definition[2], {'model_name': "Pony", 'index': index})
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_remove_expression_index(self):
+        index_name = "pony_test_fun_idx"
+        project_state = self.set_up_test_model("test_rmfunin", expression_index=True)
+        self.assertTableExists("test_rmfunin_pony")
+        self.assertIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_rmfunin_pony",
+        ))
+        operation = migrations.RemoveIndex("Pony", index_name)
+        self.assertEqual(operation.describe(), "Remove index {} from Pony".format(index_name))
+        new_state = project_state.clone()
+        operation.state_forwards("test_rmfunin", new_state)
+        # Test the state alteration
+        self.assertEqual(len(new_state.models["test_rmfunin", "pony"].options['indexes']), 0)
+        self.assertIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_rmfunin_pony",
+        ))
+        # Test the database alteration
+        with connection.schema_editor() as editor:
+            operation.database_forwards("test_rmfunin", editor, project_state, new_state)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_rmfunin_pony",
+        ))
+        # And test reversal
+        with connection.schema_editor() as editor:
+            operation.database_backwards("test_rmfunin", editor, new_state, project_state)
+        self.assertIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name="test_rmfunin_pony",
+        ))
+        # And deconstruction
+        definition = operation.deconstruct()
+        self.assertEqual(definition[0], "RemoveIndex")
+        self.assertEqual(definition[1], [])
+        self.assertEqual(definition[2], {'model_name': "Pony", 'name': index_name})
 
     def test_alter_field_with_index(self):
         """
