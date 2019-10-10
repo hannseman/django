@@ -45,3 +45,5 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_aggregate_filter_clause = Database.sqlite_version_info >= (3, 30, 1)
     supports_order_by_nulls_modifier = Database.sqlite_version_info >= (3, 30, 0)
     order_by_nulls_first = True
+    supports_expression_indexes = Database.sqlite_version_info >= (3, 9, 0)
+    supports_expression_indexes_on_columns = Database.sqlite_version_info >= (3, 9, 0)

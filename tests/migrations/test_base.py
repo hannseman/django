@@ -9,6 +9,7 @@ from django.db import connection, connections, migrations, models
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.state import ProjectState
+from django.db.models.functions import Abs
 from django.test import TransactionTestCase
 from django.test.utils import extend_sys_path
 from django.utils.module_loading import module_dir
@@ -182,6 +183,7 @@ class OperationTestBase(MigrationTestBase):
         multicol_index=False, related_model=False, mti_model=False,
         proxy_model=False, manager_model=False, unique_together=False,
         options=False, db_table=None, index_together=False, constraints=None,
+        expression_index=False,
     ):
         """Creates a test model state and database table."""
         # Make the "current" state.
@@ -212,6 +214,11 @@ class OperationTestBase(MigrationTestBase):
             operations.append(migrations.AddIndex(
                 'Pony',
                 models.Index(fields=['pink', 'weight'], name='pony_test_idx'),
+            ))
+        if expression_index:
+            operations.append(migrations.AddIndex(
+                'Pony',
+                models.Index(fields=[Abs('weight')], name='pony_test_fun_idx'),
             ))
         if constraints:
             for constraint in constraints:

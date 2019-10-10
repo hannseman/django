@@ -142,6 +142,9 @@ class BaseDatabaseSchemaEditor:
                 cursor.execute(sql, params)
 
     def quote_name(self, name):
+        # Check if name is an expression
+        if name.startswith('(') and name.endswith(')'):
+            return name
         return self.connection.ops.quote_name(name)
 
     def table_sql(self, model):
@@ -349,7 +352,9 @@ class BaseDatabaseSchemaEditor:
 
     def add_index(self, model, index):
         """Add an index on a model."""
-        self.execute(index.create_sql(model, self), params=None)
+        sql = index.create_sql(model, self)
+        if sql is not None:
+            self.execute(sql, params=None)
 
     def remove_index(self, model, index):
         """Remove an index from a model."""
@@ -938,9 +943,14 @@ class BaseDatabaseSchemaEditor:
 
     def _get_index_tablespace_sql(self, model, fields, db_tablespace=None):
         if db_tablespace is None:
-            if len(fields) == 1 and fields[0].db_tablespace:
-                db_tablespace = fields[0].db_tablespace
-            elif model._meta.db_tablespace:
+            # Try to get tablespace from field
+            if len(fields) == 1:
+                try:
+                    db_tablespace = fields[0].db_tablespace or None
+                except (IndexError, AttributeError):
+                    pass
+            # Try to get tablespace from Model.Meta
+            if db_tablespace is None and model._meta.db_tablespace:
                 db_tablespace = model._meta.db_tablespace
         if db_tablespace is not None:
             return ' ' + self.connection.ops.tablespace_sql(db_tablespace)
@@ -955,9 +965,16 @@ class BaseDatabaseSchemaEditor:
         indexes, ...).
         """
         tablespace_sql = self._get_index_tablespace_sql(model, fields, db_tablespace=db_tablespace)
-        columns = [field.column for field in fields]
         sql_create_index = sql or self.sql_create_index
         table = model._meta.db_table
+
+        # Get string representation of the fields
+        columns = []
+        for field in fields:
+            try:
+                columns.append(field.column)
+            except AttributeError:
+                columns.append(field)
 
         def create_index_name(*args, **kwargs):
             nonlocal name
@@ -1001,7 +1018,9 @@ class BaseDatabaseSchemaEditor:
             output.append(self._create_index_sql(model, fields, suffix="_idx"))
 
         for index in model._meta.indexes:
-            output.append(index.create_sql(model, self))
+            sql = index.create_sql(model, self)
+            if sql is not None:
+                output.append(sql)
         return output
 
     def _field_indexes_sql(self, model, field):

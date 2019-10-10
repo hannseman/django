@@ -12,7 +12,8 @@ try:
         CITextField, DateRangeField, DateTimeRangeField, DecimalRangeField,
         HStoreField, IntegerRangeField, JSONField,
     )
-    from django.contrib.postgres.search import SearchVectorField
+    from django.contrib.postgres.search import SearchVectorField, SearchVector
+    from django.contrib.postgres.fields.jsonb import KeyTextTransform, KeyTransform
 except ImportError:
     class DummyArrayField(models.Field):
         def __init__(self, base_field, size=None, **kwargs):
@@ -41,6 +42,9 @@ except ImportError:
     HStoreField = models.Field
     IntegerRangeField = models.Field
     JSONField = DummyJSONField
+    KeyTextTransform = models.Expression
+    KeyTransform = models.Expression
+    SearchVector = models.Expression
     SearchVectorField = models.Field
 
 

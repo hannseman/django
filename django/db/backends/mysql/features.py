@@ -52,6 +52,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_partial_indexes = False
     supports_order_by_nulls_modifier = False
     order_by_nulls_first = True
+    supports_expression_indexes_on_columns = False
 
     @cached_property
     def _mysql_storage_engine(self):
@@ -160,3 +161,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     def supports_default_in_lead_lag(self):
         # To be added in https://jira.mariadb.org/browse/MDEV-12981.
         return not self.connection.mysql_is_mariadb
+
+    @cached_property
+    def supports_expression_indexes(self):
+        return not self.connection.mysql_is_mariadb and self.connection.mysql_version >= (8, 0, 13)

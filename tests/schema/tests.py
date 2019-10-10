@@ -1,20 +1,25 @@
 import datetime
 import itertools
 import unittest
+import warnings
 from copy import copy
 from unittest import mock
 
+from django.core.exceptions import FieldError
 from django.core.management.color import no_style
 from django.db import (
     DatabaseError, DataError, IntegrityError, OperationalError, connection,
 )
 from django.db.models import (
     CASCADE, PROTECT, AutoField, BigAutoField, BigIntegerField, BinaryField,
-    BooleanField, CharField, CheckConstraint, DateField, DateTimeField,
-    ForeignKey, ForeignObject, Index, IntegerField, ManyToManyField, Model,
-    OneToOneField, PositiveIntegerField, Q, SlugField, SmallAutoField,
-    SmallIntegerField, TextField, TimeField, UniqueConstraint, UUIDField,
+    BooleanField, CharField, CheckConstraint, DateField, DateTimeField, F,
+    FloatField, ForeignKey, ForeignObject, Index, IntegerField,
+    ManyToManyField, Model, OneToOneField, OrderBy, PositiveIntegerField, Q,
+    SlugField, SmallAutoField, SmallIntegerField, TextField, TimeField,
+    UniqueConstraint, UUIDField, Value,
 )
+from django.db.models.expressions import Random
+from django.db.models.functions import Cast, Lower, Upper
 from django.db.transaction import TransactionManagementError, atomic
 from django.test import (
     TransactionTestCase, skipIfDBFeature, skipUnlessDBFeature,
@@ -2421,6 +2426,325 @@ class SchemaTests(TransactionTestCase):
         # The text_field index is present if the database supports it.
         assertion = self.assertIn if connection.features.supports_index_on_text_field else self.assertNotIn
         assertion('text_field', self.get_indexes(AuthorTextFieldWithIndex._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index(self):
+        """
+        Tests creating a functional index
+        """
+
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(Book)
+
+        # Define the index
+        index_name = 'lower_func_idx'
+        index = Index(fields=[Lower('title').desc()], name=index_name)
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Book, index)
+            sql = index.create_sql(Book, editor)
+        self.assertIn(index_name, self.get_constraints(Book._meta.db_table))
+
+        sql = str(sql).upper()
+        self.assertIn('LOWER(', sql)
+        self.assertIn('TITLE', sql)
+        self.assertIn(index_name.upper(), sql)
+        self.assertIn('DESC', sql)
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            sql = index.remove_sql(Book, editor)
+            editor.remove_index(Book, index)
+        sql = str(sql).upper()
+        self.assertIn(index_name.upper(), sql)
+        self.assertNotIn(index_name, self.get_constraints(Book._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_composite_func_index(self):
+        """
+        Test creating a composite functional index
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the index
+        index_name = 'lower_upper_func_idx'
+        index = Index(fields=[Lower('name'), Upper('name')], name=index_name)
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Author, index)
+            sql = index.create_sql(Author, editor)
+
+        # Ensure the index is there
+        self.assertIn(index_name, self.get_constraints(Author._meta.db_table))
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertIn('LOWER(', sql)
+        self.assertIn('NAME', sql)
+        self.assertIn('UPPER(', sql)
+        self.assertIn(index_name.upper(), sql)
+
+        # Check order of index fields
+        self.assertLess(sql.index('LOWER'), sql.index('UPPER'))
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Author, index)
+        self.assertNotIn(index_name, self.get_constraints(Author._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes', 'supports_expression_indexes_on_columns')
+    def test_func_index_with_f_expressions(self):
+        """
+        Test creating an index by using F-expressions
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Tag)
+
+        # Define the index
+        index_name = 'f_func_idx'
+        index = Index(fields=[F('title')], name=index_name)
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Tag, index)
+            sql = index.create_sql(Tag, editor)
+
+        # Ensure the index is there
+        self.assertIn(index_name, self.get_constraints(Tag._meta.db_table))
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertIn('TITLE', sql)
+        self.assertIn(index_name.upper(), sql)
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Tag, index)
+        self.assertNotIn(index_name, self.get_constraints(Tag._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_casted_func_index(self):
+        """
+        Tests creating a cast functional index
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the index
+        index_name = 'cast_func_idx'
+        index = Index(fields=[Cast('weight', FloatField())], name=index_name)
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Author, index)
+            sql = index.create_sql(Author, editor)
+
+        # Ensure the index is there
+        self.assertIn(index_name, self.get_constraints(Author._meta.db_table))
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertIn('WEIGHT', sql)
+        self.assertIn(index_name.upper(), sql)
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Author, index)
+        self.assertNotIn(index_name, self.get_constraints(Author._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index_without_name(self):
+        """
+        Test not setting index name when creating an expression based index
+        """
+        with self.assertRaisesMessage(ValueError, 'Index.name needs to be set when fields contain expressions.'):
+            Index(fields=[Lower('title').desc()])
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index_field_and_expression(self):
+        """
+        Test creating a composite index with mixed columns and expressions
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(Book)
+
+        # Define the index
+        index_name = 'composite_mixed_func_idx'
+        index = Index(
+            fields=['-author', Lower('title').asc(), 'pub_date'],
+            name=index_name
+        )
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Book, index)
+            sql = index.create_sql(Book, editor)
+
+        # Ensure the index is there
+        self.assertIn(index_name, self.get_constraints(Book._meta.db_table))
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertIn('AUTHOR_ID', sql)
+        self.assertIn('LOWER(', sql)
+        self.assertIn('TITLE', sql)
+        self.assertIn('PUB_DATE', sql)
+        self.assertIn(index_name.upper(), sql)
+        self.assertIn('DESC', sql)
+        self.assertIn('ASC', sql)
+
+        # Check order of index fields
+        self.assertTrue(
+            sql.index('AUTHOR_ID') <
+            sql.index('TITLE') <
+            sql.index('PUB_DATE')
+        )
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Book, index)
+        self.assertNotIn(index_name, self.get_constraints(Book._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index_math_expression(self):
+        """
+        Test creating an index with math expressions
+        """
+
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the index
+        index_name = 'math_func_idx'
+        index = Index(fields=[F('height') / (F('weight') + Value(5))], name=index_name)
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Author, index)
+            sql = index.create_sql(Author, editor)
+
+        # Ensure the index is there
+        self.assertIn(index_name, self.get_constraints(Author._meta.db_table))
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('HEIGHT') <
+            sql.index('/') <
+            sql.index('WEIGHT') <
+            sql.index('+') <
+            sql.index('5')
+        )
+        self.assertIn(index_name.upper(), sql)
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            sql = index.remove_sql(Author, editor)
+            editor.remove_index(Author, index)
+
+        sql = str(sql).upper()
+        self.assertIn(index_name.upper(), sql)
+        self.assertNotIn(index_name, self.get_constraints(Author._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_func_index_invalid_field(self):
+        """
+        Test creating a functional index on an invalid field reference
+        """
+        index = Index(fields=[Lower('blub')], name='dolor_idx')
+        msg = "Cannot resolve keyword 'blub' into field. Choices are: height, id, name, uuid, weight"
+        with self.assertRaisesMessage(FieldError, msg):
+            with connection.schema_editor() as editor:
+                editor.add_index(Author, index)
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_create_index_on_volatile_function(self):
+        """
+        Test creating a functional index on a non-immutable index
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the index
+        index = Index(fields=[Random()], name='random_idx')
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            with self.assertRaises(DatabaseError):
+                editor.add_index(Author, index)
+
+    @skipIfDBFeature('supports_expression_indexes')
+    def test_no_expression_index_support_forbidden(self):
+        """
+        Test adding functional indexes on non-supporting databases
+        """
+        indexes = [
+            Index(fields=[Lower('name')], name='dolor_idx'),
+            Index(fields=[Lower('name').desc()], name='dolor_idx'),
+            Index(
+                fields=[OrderBy(OrderBy(Lower(Lower(F('name')), descending=True), descending=False))],
+                name='dolor_idx'
+            ),
+            Index(fields=['height', Lower('name').asc()], name='dolor_idx'),
+        ]
+
+        for index in indexes:
+            with self.subTest(index=index):
+                with warnings.catch_warnings(record=True) as warns:
+                    warnings.simplefilter('always')
+
+                    with connection.schema_editor() as editor:
+                        index.create_sql(Author, editor)
+                self.assertEqual(len(warns), 1)
+                self.assertIn('Not creating expression index:', warns[0].message.args[0])
+
+    @skipIfDBFeature('supports_expression_indexes')
+    def test_no_expression_index_support_accepted(self):
+        """
+        Test adding mixed column and functional indexes on non-supporting databases
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the index
+        index_name_1 = 'dolor_1_idx'
+        index_name_2 = 'dolor_2_idx'
+        index_name_3 = 'dolor_3_idx'
+        indexes = [
+            Index(fields=['name'], name=index_name_1),
+            Index(fields=['-name'], name=index_name_2),
+            Index(fields=['height', F('name').desc()], name=index_name_3),
+        ]
+
+        # Add the indexes
+        with warnings.catch_warnings(record=True) as warns:
+            with connection.schema_editor() as editor:
+                warnings.simplefilter('always')
+                for index in indexes:
+                    with self.subTest(index=index):
+                        editor.add_index(Author, index)
+            self.assertEqual(len(warns), 1)
+            self.assertIn('Not creating expression index:', warns[0].message.args[0])
+
+        # Check that column indexes was added
+        self.assertIn(index_name_1, self.get_constraints(Author._meta.db_table))
+        self.assertIn(index_name_2, self.get_constraints(Author._meta.db_table))
+
+        # Check that functional index was not added
+        self.assertNotIn(index_name_3, self.get_constraints(Author._meta.db_table))
 
     def test_primary_key(self):
         """

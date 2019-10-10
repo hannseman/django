@@ -1631,7 +1631,7 @@ class Model(metaclass=ModelBase):
                         id='models.W037',
                     )
                 )
-        fields = [field for index in cls._meta.indexes for field, _ in index.fields_orders]
+        fields = [field for index in cls._meta.indexes for field in index.field_names]
         errors.extend(cls._check_local_fields(fields, 'indexes'))
         return errors
 
