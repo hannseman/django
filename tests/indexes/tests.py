@@ -223,6 +223,53 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
             cursor.execute(self.get_opclass_query % indexname)
             self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', indexname)])
 
+    def test_ops_class_include(self):
+        index_name = 'test_ops_class_include'
+        index = Index(
+            name=index_name,
+            fields=['body'],
+            opclasses=['text_pattern_ops'],
+            include=['headline']
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(IndexedArticle2, index)
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query % index_name)
+            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
+        constraints = connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=IndexedArticle2._meta.db_table,
+        )
+        self.assertIn(index_name, constraints)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('body') <
+            constraints[index_name]['columns'].index('headline')
+        )
+
+    def test_ops_class_include_partial_tablespace(self):
+        index_name = 'test_ops_class_include_partial'
+        index = Index(
+            name=index_name,
+            fields=['body'],
+            opclasses=['text_pattern_ops'],
+            include=['headline'],
+            condition=Q(headline__contains='China'),
+            db_tablespace='pg_default',
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(IndexedArticle2, index)
+            self.assertIn('TABLESPACE "pg_default" ', str(index.create_sql(IndexedArticle2, editor)))
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query % index_name)
+            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
+        constraints = connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=IndexedArticle2._meta.db_table,
+        )
+        self.assertIn(index_name, constraints)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('body') <
+            constraints[index_name]['columns'].index('headline')
+        )
+
 
 @skipUnless(connection.vendor == 'mysql', 'MySQL tests')
 class SchemaIndexesMySQLTests(TransactionTestCase):
@@ -374,3 +421,142 @@ class PartialIndexTests(TransactionTestCase):
                 cursor=connection.cursor(), table_name=Article._meta.db_table,
             ))
             editor.remove_index(index=index, model=Article)
+
+
+@skipUnlessDBFeature('supports_include_indexes')
+class IncludeIndexTests(TransactionTestCase):
+    available_apps = ['indexes']
+
+    def test_include_index(self):
+        """
+        Test creating a B-Tree index with non-key columns
+        """
+        # Define the index
+        index_name = 'inc_idx'
+        index = Index(
+            name=index_name,
+            fields=['headline'],
+            include=['pub_date']
+        )
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Article, index)
+            sql = index.create_sql(Article, editor)
+
+        # Ensure the index is there
+        constraints = connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        )
+        self.assertIn(index_name, constraints)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('headline') <
+            constraints[index_name]['columns'].index('pub_date')
+        )
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('HEADLINE') <
+            sql.index('INCLUDE (') <
+            sql.index('PUB_DATE')
+        )
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Article, index)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        ))
+
+    def test_multiple_include_index(self):
+        """
+        Test creating a B-Tree index with multiple non-key columns
+        """
+        # Define the index
+        index_name = 'inc_multi_idx'
+        index = Index(
+            name=index_name,
+            fields=['headline'],
+            include=['pub_date', 'published']
+        )
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Article, index)
+            sql = index.create_sql(Article, editor)
+
+        # Ensure the index is there
+        constraints = connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        )
+        self.assertIn(index_name, constraints)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('headline') <
+            constraints[index_name]['columns'].index('pub_date') <
+            constraints[index_name]['columns'].index('published')
+        )
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('HEADLINE') <
+            sql.index('INCLUDE (') <
+            sql.index('PUB_DATE') <
+            sql.index('PUBLISHED')
+        )
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Article, index)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        ))
+
+    def test_partial_include_index(self):
+        """
+        Test creating a partial B-Tree index with  non-key columns
+        """
+        # Define the index
+        index_name = 'inc_partial_idx'
+        index = Index(
+            name=index_name,
+            fields=['headline'],
+            include=['pub_date'],
+            condition=Q(pub_date__isnull=False),
+        )
+
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Article, index)
+            sql = index.create_sql(Article, editor)
+
+        # Ensure the index is there
+        constraints = connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        )
+        self.assertIn(index_name, constraints)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('headline') <
+            constraints[index_name]['columns'].index('pub_date')
+        )
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('HEADLINE') <
+            sql.index('INCLUDE (') <
+            sql.index('PUB_DATE') <
+            sql.index(' WHERE')
+        )
+        self.assertIn(
+            'WHERE %s IS NOT NULL' % editor.quote_name('pub_date').upper(),
+            sql
+        )
+
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Article, index)
+        self.assertNotIn(index_name, connection.introspection.get_constraints(
+            cursor=connection.cursor(), table_name=Article._meta.db_table,
+        ))

@@ -12,7 +12,7 @@ from django.test import skipUnlessDBFeature
 from django.test.utils import register_lookup
 
 from . import PostgreSQLSimpleTestCase, PostgreSQLTestCase
-from .models import CharFieldModel, IntegerArrayModel
+from .models import CharFieldModel, IntegerArrayModel, Scene
 
 
 class IndexTestMixin:
@@ -306,6 +306,30 @@ class SchemaTests(PostgreSQLTestCase):
         with connection.schema_editor() as editor:
             editor.remove_index(CharFieldModel, index)
         self.assertNotIn(index_name, self.get_constraints(CharFieldModel._meta.db_table))
+
+    @skipUnlessDBFeature('supports_include_gist_indexes')
+    def test_gist_include(self):
+        # Add the index.
+        index_name = 'gist_inc_indx'
+        index = GistIndex(
+            name=index_name,
+            fields=['scene'],
+            include=['setting']
+        )
+        with connection.schema_editor() as editor:
+            editor.add_index(Scene, index)
+        # The index was added.
+        constraints = self.get_constraints(Scene._meta.db_table)
+        self.assertIn(index_name, constraints)
+        self.assertEqual(constraints[index_name]['type'], GistIndex.suffix)
+        self.assertTrue(
+            constraints[index_name]['columns'].index('scene') <
+            constraints[index_name]['columns'].index('setting')
+        )
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Scene, index)
+        self.assertNotIn(index_name, self.get_constraints(Scene._meta.db_table))
 
     def test_hash_index(self):
         # Ensure the table is there and doesn't have an index.

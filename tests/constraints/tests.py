@@ -142,6 +142,30 @@ class UniqueConstraintTests(TestCase):
             ),
         )
 
+    def test_eq_with_include(self):
+        self.assertEqual(
+            models.UniqueConstraint(
+                fields=['foo', 'bar'], name='include',
+                include=['baz']
+            ),
+            models.UniqueConstraint(
+                fields=['foo', 'bar'], name='include',
+                include=['baz'],
+            )
+        )
+        self.assertNotEqual(
+            models.UniqueConstraint(
+                fields=['foo', 'bar'],
+                name='include',
+                include=['bazz']
+            ),
+            models.UniqueConstraint(
+                fields=['foo', 'bar'],
+                name='include',
+                include=['baz']
+            ),
+        )
+
     def test_repr(self):
         fields = ['foo', 'bar']
         name = 'unique_fields'
@@ -163,6 +187,18 @@ class UniqueConstraintTests(TestCase):
             "condition=(AND: ('foo', F(bar)))>",
         )
 
+    def test_repr_with_include(self):
+        constraint = models.UniqueConstraint(
+            fields=['foo', 'bar'],
+            name='include_fields',
+            include=['baz', 'baz2']
+        )
+        self.assertEqual(
+            repr(constraint),
+            "<UniqueConstraint: fields=('foo', 'bar') name='include_fields' "
+            "include=('baz', 'baz2')>",
+        )
+
     def test_deconstruction(self):
         fields = ['foo', 'bar']
         name = 'unique_fields'
@@ -181,6 +217,16 @@ class UniqueConstraintTests(TestCase):
         self.assertEqual(path, 'django.db.models.UniqueConstraint')
         self.assertEqual(args, ())
         self.assertEqual(kwargs, {'fields': tuple(fields), 'name': name, 'condition': condition})
+
+    def test_deconstruction_with_include(self):
+        fields = ['foo', 'bar']
+        name = 'unique_fields_with_include'
+        include = ['baz', 'buzz']
+        constraint = models.UniqueConstraint(fields=fields, name=name, include=include)
+        path, args, kwargs = constraint.deconstruct()
+        self.assertEqual(path, 'django.db.models.UniqueConstraint')
+        self.assertEqual(args, ())
+        self.assertEqual(kwargs, {'fields': tuple(fields), 'name': name, 'include': tuple(include)})
 
     def test_database_constraint(self):
         with self.assertRaises(IntegrityError):
@@ -204,3 +250,7 @@ class UniqueConstraintTests(TestCase):
     def test_condition_must_be_q(self):
         with self.assertRaisesMessage(ValueError, 'UniqueConstraint.condition must be a Q instance.'):
             models.UniqueConstraint(name='uniq', fields=['name'], condition='invalid')
+
+    def test_include_requires_list_or_tuple(self):
+        with self.assertRaisesMessage(ValueError, 'UniqueConstraint.include must be a list or tuple.'):
+            models.UniqueConstraint(name='uniq_include', fields=['field'], include='other')

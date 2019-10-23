@@ -84,8 +84,8 @@ class BaseDatabaseSchemaEditor:
     sql_create_column_inline_fk = None
     sql_delete_fk = sql_delete_constraint
 
-    sql_create_index = "CREATE INDEX %(name)s ON %(table)s (%(columns)s)%(extra)s%(condition)s"
-    sql_create_unique_index = "CREATE UNIQUE INDEX %(name)s ON %(table)s (%(columns)s)%(condition)s"
+    sql_create_index = "CREATE INDEX %(name)s ON %(table)s (%(columns)s)%(include)s%(extra)s%(condition)s"
+    sql_create_unique_index = "CREATE UNIQUE INDEX %(name)s ON %(table)s (%(columns)s)%(include)s%(condition)s"
     sql_delete_index = "DROP INDEX %(name)s"
 
     sql_create_pk = "ALTER TABLE %(table)s ADD CONSTRAINT %(name)s PRIMARY KEY (%(columns)s)"
@@ -942,9 +942,19 @@ class BaseDatabaseSchemaEditor:
             return ' ' + self.connection.ops.tablespace_sql(db_tablespace)
         return ''
 
+    def _get_include_sql(self, model, include_fields):
+        if not include_fields:
+            return ''
+        include_columns = Columns(
+            model._meta.db_table,
+            [field.column for field in include_fields],
+            self.quote_name
+        )
+        return ' INCLUDE (%s)' % include_columns if include_columns else ''
+
     def _create_index_sql(self, model, fields, *, name=None, suffix='', using='',
                           db_tablespace=None, col_suffixes=(), sql=None, opclasses=(),
-                          condition=None):
+                          condition=None, include=None):
         """
         Return the SQL statement to create the index for one or several fields.
         `sql` can be specified if the syntax differs from the standard (GIS
@@ -952,6 +962,7 @@ class BaseDatabaseSchemaEditor:
         """
         tablespace_sql = self._get_index_tablespace_sql(model, fields, db_tablespace=db_tablespace)
         columns = [field.column for field in fields]
+
         sql_create_index = sql or self.sql_create_index
         table = model._meta.db_table
 
@@ -960,7 +971,6 @@ class BaseDatabaseSchemaEditor:
             if name is None:
                 name = self._create_index_name(*args, **kwargs)
             return self.quote_name(name)
-
         return Statement(
             sql_create_index,
             table=Table(table, self.quote_name),
@@ -969,6 +979,7 @@ class BaseDatabaseSchemaEditor:
             columns=self._index_columns(table, columns, col_suffixes, opclasses),
             extra=tablespace_sql,
             condition=(' WHERE ' + condition) if condition else '',
+            include=self._get_include_sql(model, include)
         )
 
     def _delete_index_sql(self, model, name, sql=None):
@@ -1061,11 +1072,13 @@ class BaseDatabaseSchemaEditor:
     def _delete_fk_sql(self, model, name):
         return self._delete_constraint_sql(self.sql_delete_fk, model, name)
 
-    def _unique_sql(self, model, fields, name, condition=None):
-        if condition:
-            # Databases support conditional unique constraints via a unique
-            # index.
-            sql = self._create_unique_sql(model, fields, name=name, condition=condition)
+    def _unique_sql(self, model, fields, name, condition=None, include=None):
+        if condition or include:
+            # Databases support conditional unique constraints and included
+            # non-key columns via a unique index.
+            sql = self._create_unique_sql(
+                model, fields, name=name, condition=condition, include=include
+            )
             if sql:
                 self.deferred_sql.append(sql)
             return None
@@ -1077,7 +1090,7 @@ class BaseDatabaseSchemaEditor:
             'constraint': constraint,
         }
 
-    def _create_unique_sql(self, model, columns, name=None, condition=None):
+    def _create_unique_sql(self, model, columns, name=None, condition=None, include=None):
         def create_unique_name(*args, **kwargs):
             return self.quote_name(self._create_index_name(*args, **kwargs))
 
@@ -1087,14 +1100,20 @@ class BaseDatabaseSchemaEditor:
         else:
             name = self.quote_name(name)
         columns = Columns(table, columns, self.quote_name)
-        if condition:
-            return Statement(
-                self.sql_create_unique_index,
-                table=table,
-                name=name,
-                columns=columns,
-                condition=' WHERE ' + condition,
-            ) if self.connection.features.supports_partial_indexes else None
+        if condition or include:
+            return (
+                Statement(
+                    self.sql_create_unique_index,
+                    table=table,
+                    name=name,
+                    columns=columns,
+                    condition=" WHERE " + condition if condition else "",
+                    include=self._get_include_sql(model, include),
+                )
+                if self.connection.features.supports_partial_indexes or
+                self.connection.features.supports_include_indexes
+                else None
+            )
         else:
             return Statement(
                 self.sql_create_unique,
@@ -1103,11 +1122,13 @@ class BaseDatabaseSchemaEditor:
                 columns=columns,
             )
 
-    def _delete_unique_sql(self, model, name, condition=None):
-        if condition:
+    def _delete_unique_sql(self, model, name, condition=None, include=None):
+        if condition or include:
             return (
                 self._delete_constraint_sql(self.sql_delete_index, model, name)
-                if self.connection.features.supports_partial_indexes else None
+                if self.connection.features.supports_partial_indexes or
+                self.connection.features.supports_include_indexes
+                else None
             )
         return self._delete_constraint_sql(self.sql_delete_unique, model, name)
 
