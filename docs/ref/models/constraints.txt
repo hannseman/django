@@ -115,3 +115,20 @@ ensures that each user only has one draft.
 
 These conditions have the same database restrictions as
 :attr:`Index.condition`.
+
+``include``
+-------------
+
+.. attribute:: UniqueConstraint.include
+
+.. versionadded:: 3.1
+
+A list of fields to be included with the unique index. This allows for fully
+covered indexes to be used by filtering on the unique field and selecting
+the included fields with :meth:`~django.db.models.query.QuerySet.only()`.
+
+For example, ``UniqueConstraint(name='unique_ssn', fields=['ssn'],
+include=['name'])`` allows ``name`` to also be read from the index.
+
+
+``include`` have the same database restrictions as :attr:`Index.condition`.

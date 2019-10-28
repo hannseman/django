@@ -176,6 +176,9 @@ Models
   * ``TREE`` format on MySQL 8.0.16+,
   * ``analyze`` option on MySQL 8.0.18+ and MariaDB.
 
+* Added support for creating covering indexes by using
+  (:attr:`.Index.include`).
+
 Pagination
 ~~~~~~~~~~
 
@@ -232,6 +235,7 @@ backends.
 
 * ``DatabaseOperations.fetch_returned_insert_columns()`` now requires an
   additional ``returning_params`` argument.
+
 
 Dropped support for MariaDB 10.1
 --------------------------------
