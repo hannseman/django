@@ -2587,6 +2587,7 @@ class SchemaTests(TransactionTestCase):
                     "columns": editor.quote_name(column),
                     "extra": "",
                     "condition": "",
+                    "include": "",
                 }
             )
             self.assertIn(expected_constraint_name, self.get_constraints(model._meta.db_table))
@@ -3145,3 +3146,87 @@ class SchemaTests(TransactionTestCase):
         with connection.schema_editor(atomic=True) as editor:
             editor.alter_db_table(Foo, Foo._meta.db_table, 'renamed_table')
         Foo._meta.db_table = 'renamed_table'
+
+    def test_unique_constraint_with_include(self):
+        """
+        Test creating a unique index with included non-key columns
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the constraint
+        name = 'unique_constraint_inc'
+        constraint = UniqueConstraint(
+            fields=['uuid'],
+            name=name,
+            include=['height', 'weight'],
+        )
+
+        # Add the constraint
+        with connection.schema_editor() as editor:
+            editor.add_constraint(Author, constraint)
+            sql = constraint.create_sql(Author, editor)
+
+        # Ensure the constraint is there
+        constraints = self.get_constraints(Author._meta.db_table)
+        self.assertIn(name, constraints)
+        self.assertEqual(constraints[name]['columns'], ['uuid', 'height', 'weight'])
+        self.assertIs(constraints[name]['unique'], True)
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('UUID') <
+            sql.index('INCLUDE (') <
+            sql.index('HEIGHT') <
+            sql.index('WEIGHT')
+        )
+
+        # Drop the constraint
+        with connection.schema_editor() as editor:
+            editor.remove_constraint(Author, constraint)
+        self.assertNotIn(name, self.get_constraints(Author._meta.db_table))
+
+    def test_unique_partial_constraint_with_include(self):
+        """
+        Test creating a partial unique index with included non-key columns
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        # Define the constraint
+        name = 'unique_partial_constraint_inc'
+        constraint = UniqueConstraint(
+            fields=['uuid'],
+            name=name,
+            include=['height', 'weight'],
+            condition=Q(height__gte=200),
+        )
+
+        # Add the constraint
+        with connection.schema_editor() as editor:
+            editor.add_constraint(Author, constraint)
+            sql = constraint.create_sql(Author, editor)
+
+        # Ensure the constraint is there
+        constraints = self.get_constraints(Author._meta.db_table)
+        self.assertIn(name, constraints)
+        self.assertEqual(constraints[name]['columns'], ['uuid', 'height', 'weight'])
+        self.assertIs(constraints[name]['unique'], True)
+
+        # Check that the vital SQL parts are there
+        sql = str(sql).upper()
+        self.assertTrue(
+            sql.index('UUID') <
+            sql.index('INCLUDE (') <
+            sql.index('HEIGHT') <
+            sql.index('WEIGHT') <
+            sql.index('WHERE')
+        )
+
+        # Drop the constraint
+        with connection.schema_editor() as editor:
+            editor.remove_constraint(Author, constraint)
+        self.assertNotIn(name, self.get_constraints(Author._meta.db_table))

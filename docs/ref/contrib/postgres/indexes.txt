@@ -55,7 +55,12 @@ available from the ``django.contrib.postgres.indexes`` module.
     Provide an integer value from 10 to 100 to the fillfactor_ parameter to
     tune how packed the index pages will be. PostgreSQL's default is 90.
 
+    Supports the `INCLUDE clause`_ to add non-key columns to the index by
+    specifying fields with the :attr:`~django.db.models.Index.include`
+    parameter on Postgres SQL 11 or later.
+
     .. _fillfactor: https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-STORAGE-PARAMETERS
+    .. _INCLUDE clause: https://www.postgresql.org/docs/current/sql-createindex.html
 
 ``GinIndex``
 ============
@@ -109,8 +114,13 @@ available from the ``django.contrib.postgres.indexes`` module.
     Provide an integer value from 10 to 100 to the fillfactor_ parameter to
     tune how packed the index pages will be. PostgreSQL's default is 90.
 
+    Supports the `INCLUDE clause`_ to add non-key columns to the index by
+    specifying fields with the :attr:`~django.db.models.Index.include`
+    parameter on Postgres SQL 12 or later.
+
     .. _buffering build: https://www.postgresql.org/docs/current/gist-implementation.html#GIST-BUFFERING-BUILD
     .. _fillfactor: https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-STORAGE-PARAMETERS
+    .. _INCLUDE clause: https://www.postgresql.org/docs/current/sql-createindex.html
 
 ``HashIndex``
 =============

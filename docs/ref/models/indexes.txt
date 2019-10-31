@@ -21,7 +21,7 @@ options`_.
 ``Index`` options
 =================
 
-.. class:: Index(fields=(), name=None, db_tablespace=None, opclasses=(), condition=None)
+.. class:: Index(fields=(), name=None, db_tablespace=None, opclasses=(), condition=None, include=None)
 
     Creates an index (B-Tree) in the database.
 
@@ -137,3 +137,42 @@ indexes records with more than 400 pages.
 
     The ``condition`` argument is ignored with MySQL and MariaDB as neither
     supports conditional indexes.
+
+``include``
+-----------
+
+.. attribute:: Index.include
+
+.. versionadded:: 3.2
+
+Used to create covering indexes where all columns in a query is available in
+the index. By having all columns affected by a query in the index the need to
+retrieve data from the table is eliminated. This is called an Index-Only Scan
+and reduces the number of I/O operations needed by the database to run a query.
+
+For example, ``Index(name='covering_index', fields=['last_name'],
+include=['first_name'])`` will allow filtering on ``last_name`` while also
+selecting ``first_name`` and only fetch data from the index.
+
+By using :meth:`~django.db.models.query.QuerySet.only()` to select
+fields included in the index while also only using these fields in
+:meth:`~django.db.models.query.QuerySet.filter()` a fully index covered
+query can be produced. For example,
+``Author.objects.filter(last_name='Reinhardt').only('first_name', 'last_name')``
+
+Using ``include`` will produce a smaller index than using a regular
+multi-column index but with the drawback that the columns can not be used as
+predicates or for sorting and still have the benefits of regular indexed
+columns.
+
+Careful consideration should be used when adding non-key columns especially
+for wider columns as exceeding the maximum size for the chosen index type
+will cause inserts to fail.
+
+:attr:`Index.name` is required when using ``include``.
+
+``include`` is ignored for databases besides PostgreSQL.
+
+.. admonition:: Restrictions on PostgreSQL
+
+    PostgreSQL only supports the `INCLUDE` clause on B-tree and GiST indexes.

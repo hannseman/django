@@ -310,6 +310,9 @@ class BaseDatabaseFeatures:
     # Is there a true datatype for JSON?
     has_native_json_field = False
 
+    # Does the backend support indexes with non-key columns using the INCLUDE clause?
+    supports_include_indexes = False
+
     def __init__(self, connection):
         self.connection = connection
 

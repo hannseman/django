@@ -165,7 +165,11 @@ Migrations
 Models
 ~~~~~~
 
-* ...
+* Added support for creating covering indexes by using
+  (:attr:`.Index.include`) on PostgreSQL 11+. Third-party database backends
+  wanting to support this feature can enable it by setting
+  ``DatabaseFeatures.supports_include_indexes`` to ``True`` after
+  implementing the functionality.
 
 Requests and Responses
 ~~~~~~~~~~~~~~~~~~~~~~

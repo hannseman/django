@@ -143,3 +143,21 @@ enforced immediately after every command.
 
     Deferred unique constraints may lead to a `performance penalty
     <https://www.postgresql.org/docs/current/sql-createtable.html#id-1.9.3.85.9.4>`_.
+
+``include``
+-----------
+
+.. attribute:: UniqueConstraint.include
+
+.. versionadded:: 3.2
+
+A list of fields to be included as non-key columns on the unique index.
+This allows for fully covered indexes to be used by filtering on the unique
+field and selecting the included fields with
+:meth:`~django.db.models.query.QuerySet.only()`.
+
+For example, ``UniqueConstraint(name='unique_ssn', fields=['ssn'],
+include=['name'])`` allows ``name`` to also be read from the index by running
+``Person.objects.filter(ssn='000-00-0000').only('ssn', 'name')``
+
+``include`` has the same database restrictions as :attr:`Index.condition`.

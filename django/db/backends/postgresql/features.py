@@ -74,3 +74,5 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     has_brin_autosummarize = property(operator.attrgetter('is_postgresql_10'))
     has_websearch_to_tsquery = property(operator.attrgetter('is_postgresql_11'))
     supports_table_partitions = property(operator.attrgetter('is_postgresql_10'))
+    supports_include_indexes = property(operator.attrgetter('is_postgresql_11'))
+    supports_include_gist_indexes = property(operator.attrgetter('is_postgresql_12'))

@@ -181,6 +181,16 @@ class UniqueConstraintTests(TestCase):
         self.assertEqual(constraint_1, constraint_1)
         self.assertNotEqual(constraint_1, constraint_2)
 
+    def test_eq_with_include(self):
+        self.assertEqual(
+            models.UniqueConstraint(fields=['foo', 'bar'], name='include', include=['baz']),
+            models.UniqueConstraint(fields=['foo', 'bar'], name='include', include=['baz']),
+        )
+        self.assertNotEqual(
+            models.UniqueConstraint(fields=['foo', 'bar'], name='include', include=['bazz']),
+            models.UniqueConstraint(fields=['foo', 'bar'], name='include', include=['baz']),
+        )
+
     def test_repr(self):
         fields = ['foo', 'bar']
         name = 'unique_fields'
@@ -212,6 +222,18 @@ class UniqueConstraintTests(TestCase):
             repr(constraint),
             "<UniqueConstraint: fields=('foo', 'bar') name='unique_fields' "
             "deferrable=Deferrable.IMMEDIATE>",
+        )
+
+    def test_repr_with_include(self):
+        constraint = models.UniqueConstraint(
+            fields=['foo', 'bar'],
+            name='include_fields',
+            include=['baz', 'baz2'],
+        )
+        self.assertEqual(
+            repr(constraint),
+            "<UniqueConstraint: fields=('foo', 'bar') name='include_fields' "
+            "include=('baz', 'baz2')>",
         )
 
     def test_deconstruction(self):
@@ -249,6 +271,16 @@ class UniqueConstraintTests(TestCase):
             'name': name,
             'deferrable': models.Deferrable.DEFERRED,
         })
+
+    def test_deconstruction_with_include(self):
+        fields = ['foo', 'bar']
+        name = 'unique_fields_with_include'
+        include = ['baz', 'buzz']
+        constraint = models.UniqueConstraint(fields=fields, name=name, include=include)
+        path, args, kwargs = constraint.deconstruct()
+        self.assertEqual(path, 'django.db.models.UniqueConstraint')
+        self.assertEqual(args, ())
+        self.assertEqual(kwargs, {'fields': tuple(fields), 'name': name, 'include': tuple(include)})
 
     def test_database_constraint(self):
         with self.assertRaises(IntegrityError):
@@ -333,3 +365,7 @@ class UniqueConstraintTests(TestCase):
                 name='name_invalid',
                 deferrable='invalid',
             )
+
+    def test_include_requires_list_or_tuple(self):
+        with self.assertRaisesMessage(ValueError, 'UniqueConstraint.include must be a list or tuple.'):
+            models.UniqueConstraint(name='uniq_include', fields=['field'], include='other')
