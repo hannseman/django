@@ -134,6 +134,36 @@ See :ref:`postgresql-fts-weighting-queries` for an explanation of the
 
 .. _postgresql-fts-search-configuration:
 
+``SearchHeadline``
+-------------------
+
+.. class:: SearchHeadline(expression, query, options=None)
+
+Accepts a field name or expression, a query, and options. Returns a string
+of fragments highlighting matches of the query. It can be used for
+presentation of the search results common to how search engines show their
+results.
+
+The highlighting can be configured by passing `options` as a dictionary.
+The PostgreSQL documentation has details on
+`how this configuration is used
+<https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-HEADLINE>`_.
+
+Usage example::
+
+    >>> from django.contrib.postgres.search import SearchHeadline, SearchQuery
+    >>> query = SearchQuery('brave sir robin')
+    >>> first_line = Line.objects.annotate(
+    ...     headline=SearchHeadline('dialogue', query, options={
+    ...         'StartSel': '<b>',
+    ...         'StopSel': '</b>'
+    ...     })
+    ... ).first()
+    >>> print(first_line.headline)
+    '<b>Robin</b>. He was not at all afraid to be killed in nasty ways.
+    <b>Brave</b>, <b>brave</b>, <b>brave</b>, <b>brave</b> <b>Sir</b>
+    <b>Robin</b>'
+
 Changing the search configuration
 =================================
 

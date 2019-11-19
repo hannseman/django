@@ -5,15 +5,19 @@ These tests use dialogue from the 1975 film Monty Python and the Holy Grail.
 All text copyright Python (Monty) Pictures. Thanks to sacred-texts.com for the
 transcript.
 """
-from django.contrib.postgres.search import (
-    SearchQuery, SearchRank, SearchVector,
-)
 from django.db import connection
 from django.db.models import F
-from django.test import SimpleTestCase, modify_settings, skipUnlessDBFeature
+from django.test import modify_settings, skipUnlessDBFeature
 
-from . import PostgreSQLTestCase
+from . import PostgreSQLSimpleTestCase, PostgreSQLTestCase
 from .models import Character, Line, Scene
+
+try:
+    from django.contrib.postgres.search import (
+        SearchHeadline, SearchQuery, SearchRank, SearchVector,
+    )
+except ImportError:
+    pass
 
 
 class GrailTestData:
@@ -71,10 +75,12 @@ class GrailTestData:
         cls.crowd = Line.objects.create(scene=cls.witch_scene, character=crowd, dialogue='A witch! A witch!')
         cls.witch = Line.objects.create(scene=cls.witch_scene, character=witch, dialogue="It's a fair cop.")
 
-        trojan_rabbit = Scene.objects.create(scene='Scene 8', setting="The castle of Our Master Ruiz' de lu la Ramper")
+        cls.trojan_rabbit_scene = Scene.objects.create(
+            scene='Scene 8', setting="The castle of Our Master Ruiz' de lu la Ramper"
+        )
         guards = Character.objects.create(name='French Guards')
         cls.french = Line.objects.create(
-            scene=trojan_rabbit,
+            scene=cls.trojan_rabbit_scene,
             character=guards,
             dialogue='Oh. Un beau cadeau. Oui oui.',
             dialogue_config='french',
@@ -407,7 +413,7 @@ class SearchVectorIndexTests(PostgreSQLTestCase):
             )
 
 
-class SearchQueryTests(SimpleTestCase):
+class SearchQueryTests(PostgreSQLSimpleTestCase):
     def test_str(self):
         tests = (
             (~SearchQuery('a'), '~SearchQuery(a)'),
@@ -431,3 +437,94 @@ class SearchQueryTests(SimpleTestCase):
         for query, expected_str in tests:
             with self.subTest(query=query):
                 self.assertEqual(str(query), expected_str)
+
+
+@modify_settings(INSTALLED_APPS={'append': 'django.contrib.postgres'})
+class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
+
+    def test_headline(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline('dialogue', SearchQuery('brave sir robin')),
+        )
+        self.assertIn('<b>Robin</b>', searched.first().headline)
+
+    def test_headline_implicit_query(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline('dialogue', 'brave sir robin'),
+        )
+        self.assertIn('<b>Robin</b>', searched.first().headline)
+
+    def test_headline_search(self):
+        query = SearchQuery('brave sir robin')
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            search=SearchVector('dialogue'),
+            headline=SearchHeadline('dialogue', query),
+        ).filter(search=query)
+        self.assertEqual(searched.count(), 2)
+        self.assertIn('<b>', searched.first().headline)
+
+    def test_headline_explicit_config(self):
+        searched = Line.objects.filter(scene=self.trojan_rabbit_scene).annotate(
+            headline=SearchHeadline('dialogue', SearchQuery('cadeaux', config='french')),
+        )
+        self.assertEqual(str(searched.query).count('french::regconfig'), 2)
+        self.assertIn('<b>', searched.first().headline)
+
+    def test_headline_explicit_config_from_field(self):
+        searched = Line.objects.filter(scene=self.trojan_rabbit_scene).annotate(
+            headline=SearchHeadline('dialogue', SearchQuery('cadeaux', config=F('dialogue_config'))),
+        )
+        self.assertEqual(str(searched.query).count('"dialogue_config"::regconfig'), 2)
+        self.assertIn('<b>', searched.first().headline)
+
+    def test_headline_separator_options(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline(
+                'dialogue',
+                SearchQuery('brave sir robin'),
+                options={'StartSel': '<strong class="clazz">', 'StopSel': '</strong>'}
+            ),
+        )
+        self.assertIn('<strong class="clazz">', searched.first().headline)
+        self.assertIn('</strong>', searched.first().headline)
+
+    def test_headline_explicit_config_and_options(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline(
+                'dialogue',
+                SearchQuery('brave sir robin', config='english'),
+                options={'HighlightAll': True}
+            ),
+        )
+        self.assertIn('HighlightAll=true', str(searched.query))
+        self.assertIn('<b>', searched.first().headline)
+
+    def test_headline_config_short_word(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline(
+                'dialogue',
+                SearchQuery('brave sir robin', config='english'),
+                options={'ShortWord': 6}
+            ),
+        )
+        self.assertIn('ShortWord=6', str(searched.query))
+        self.assertIn('<b>', searched.first().headline)
+
+    def test_headline_config_fragments(self):
+        searched = Line.objects.filter(character=self.minstrel).annotate(
+            headline=SearchHeadline(
+                'dialogue',
+                SearchQuery('brave sir robin', config='english'),
+                options={
+                    'FragmentDelimiter': "'''",
+                    'MaxFragments': 4,
+                    'MaxWords': 3,
+                    'MinWords': 1
+                }
+            ),
+        )
+        self.assertIn('FragmentDelimiter', str(searched.query))
+        self.assertIn('MaxFragments=4', str(searched.query))
+        self.assertIn('MaxWords=3', str(searched.query))
+        self.assertIn('MinWords=1', str(searched.query))
+        self.assertIn("</b>'''<b>", searched.first().headline)

@@ -1,3 +1,5 @@
+import psycopg2
+
 from django.db.models import CharField, Field, FloatField, TextField
 from django.db.models.expressions import CombinedExpression, Func, Value
 from django.db.models.functions import Cast, Coalesce
@@ -211,6 +213,44 @@ class SearchRank(Func):
             function=function, template=template, **extra_context
         )
         return sql, extra_params + params
+
+
+class SearchHeadline(SearchConfigurable, Func):
+    function = 'ts_headline'
+    output_field = TextField()
+    options = None
+
+    def __init__(self, expression, query, **extra):
+        if not hasattr(query, 'resolve_expression'):
+            query = SearchQuery(query)
+        self.config = query.config
+        self.options = extra.get('options', self.options)
+        super().__init__(expression, query, **extra)
+
+    def as_sql(self, compiler, connection, function=None, template=None, arg_joiner=None, **extra_context):
+        config_params, options_params = [], []
+        extra_context = {}
+        if template is None:
+            template = '%(function)s(%(config)s%(expressions)s%(options)s)'
+            extra_context.update({
+                'config': '',
+                'options': '',
+            })
+            if self.config:
+                config_sql, config_params = compiler.compile(self.config)
+                extra_context['config'] = '{}::regconfig, '.format(config_sql)
+            if self.options:
+                options = []
+                for option, value in self.options.items():
+                    pg_value = psycopg2.extensions.adapt(value).getquoted().decode()
+                    options.append('%s=%s' % (option, pg_value))
+                options_params = [', '.join(options)]
+                extra_context['options'] = ', %s'
+        sql, params = super().as_sql(
+            compiler, connection,
+            function=function, template=template, **extra_context
+        )
+        return sql, config_params + params + options_params
 
 
 SearchVectorField.register_lookup(SearchVectorExact)
