@@ -234,7 +234,8 @@ class SearchHeadline(SearchConfigurable, Func):
         if not hasattr(query, 'resolve_expression'):
             query = SearchQuery(query)
         self.config = query.config
-        self.options = extra.get('options', self.options)
+        options = extra.get('options') or {}
+        self.options = {**self.options, **options}
         invalid_options = [option for option in self.options.keys() if option not in self.VALID_OPTIONS]
         if invalid_options:
             raise ValueError("Unknown options key(s) '%s'." % ', '.join(invalid_options))
