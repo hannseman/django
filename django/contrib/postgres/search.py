@@ -33,6 +33,18 @@ class SearchQueryField(Field):
         return 'tsquery'
 
 
+class SearchConfigurable:
+
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+        resolved = super().resolve_expression(query, allow_joins, reuse, summarize, for_save)
+        if self.config:
+            if not hasattr(self.config, 'resolve_expression'):
+                resolved.config = Value(self.config).resolve_expression(query, allow_joins, reuse, summarize, for_save)
+            else:
+                resolved.config = self.config.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+        return resolved
+
+
 class SearchVectorCombinable:
     ADD = '||'
 
@@ -44,7 +56,7 @@ class SearchVectorCombinable:
         return CombinedSearchVector(self, connector, other, self.config)
 
 
-class SearchVector(SearchVectorCombinable, Func):
+class SearchVector(SearchVectorCombinable, SearchConfigurable, Func):
     function = 'to_tsvector'
     arg_joiner = " || ' ' || "
     output_field = SearchVectorField()
@@ -57,15 +69,6 @@ class SearchVector(SearchVectorCombinable, Func):
         if weight is not None and not hasattr(weight, 'resolve_expression'):
             weight = Value(weight)
         self.weight = weight
-
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
-        resolved = super().resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        if self.config:
-            if not hasattr(self.config, 'resolve_expression'):
-                resolved.config = Value(self.config).resolve_expression(query, allow_joins, reuse, summarize, for_save)
-            else:
-                resolved.config = self.config.resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        return resolved
 
     def as_sql(self, compiler, connection, function=None, template=None):
         clone = self.copy()
@@ -128,7 +131,7 @@ class SearchQueryCombinable:
         return self._combine(other, self.BITAND, True)
 
 
-class SearchQuery(SearchQueryCombinable, Value):
+class SearchQuery(SearchQueryCombinable, SearchConfigurable, Value):
     output_field = SearchQueryField()
     SEARCH_TYPES = {
         'plain': 'plainto_tsquery',
@@ -144,15 +147,6 @@ class SearchQuery(SearchQueryCombinable, Value):
             raise ValueError("Unknown search_type argument '%s'." % search_type)
         self.search_type = search_type
         super().__init__(value, output_field=output_field)
-
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
-        resolved = super().resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        if self.config:
-            if not hasattr(self.config, 'resolve_expression'):
-                resolved.config = Value(self.config).resolve_expression(query, allow_joins, reuse, summarize, for_save)
-            else:
-                resolved.config = self.config.resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        return resolved
 
     def as_sql(self, compiler, connection):
         params = [self.value]
