@@ -528,3 +528,16 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
         self.assertIn('MaxWords=3', str(searched.query))
         self.assertIn('MinWords=1', str(searched.query))
         self.assertIn("</b>'''<b>", searched.first().headline)
+
+    def test_headline_invalid_option(self):
+        msg = "Unknown options key(s) 'InvalidOption, AnotherInvalidOption'."
+        with self.assertRaisesMessage(ValueError, msg):
+            SearchHeadline(
+                'dialogue',
+                SearchQuery('brave sir robin'),
+                options={
+                    'InvalidOption': 'foo',
+                    'AnotherInvalidOption': 'bar',
+                    'MaxFragments': 4
+                }
+            )

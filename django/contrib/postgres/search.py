@@ -218,13 +218,27 @@ class SearchRank(Func):
 class SearchHeadline(SearchConfigurable, Func):
     function = 'ts_headline'
     output_field = TextField()
-    options = None
+    options = {}
+    VALID_OPTIONS = (
+        'StartSel',
+        'StopSel',
+        'MaxWords',
+        'MinWords',
+        'ShortWord',
+        'HighlightAll',
+        'MaxFragments',
+        'FragmentDelimiter',
+    )
 
     def __init__(self, expression, query, **extra):
         if not hasattr(query, 'resolve_expression'):
             query = SearchQuery(query)
         self.config = query.config
         self.options = extra.get('options', self.options)
+        invalid_options = [option for option in self.options.keys() if option not in self.VALID_OPTIONS]
+        if invalid_options:
+            raise ValueError("Unknown options key(s) '%s'." % ', '.join(invalid_options))
+
         super().__init__(expression, query, **extra)
 
     def as_sql(self, compiler, connection, function=None, template=None, arg_joiner=None, **extra_context):
