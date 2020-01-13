@@ -465,14 +465,18 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
 
     def test_headline_explicit_config(self):
         searched = Line.objects.filter(scene=self.trojan_rabbit_scene).annotate(
-            headline=SearchHeadline('dialogue', SearchQuery('cadeaux', config='french')),
+            headline=SearchHeadline('dialogue', SearchQuery('cadeaux', config='french'), config='french'),
         )
         self.assertEqual(str(searched.query).count('french::regconfig'), 2)
         self.assertIn('<b>', searched.first().headline)
 
     def test_headline_explicit_config_from_field(self):
         searched = Line.objects.filter(scene=self.trojan_rabbit_scene).annotate(
-            headline=SearchHeadline('dialogue', SearchQuery('cadeaux', config=F('dialogue_config'))),
+            headline=SearchHeadline(
+                'dialogue',
+                SearchQuery('cadeaux', config=F('dialogue_config')),
+                config=F('dialogue_config'),
+            ),
         )
         self.assertEqual(str(searched.query).count('"dialogue_config"::regconfig'), 2)
         self.assertIn('<b>', searched.first().headline)
@@ -482,7 +486,7 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
             headline=SearchHeadline(
                 'dialogue',
                 SearchQuery('brave sir robin'),
-                options={'StartSel': '<strong class="clazz">', 'StopSel': '</strong>'}
+                options={'StartSel': '<strong class="clazz">', 'StopSel': '</strong>'},
             ),
         )
         self.assertIn('<strong class="clazz">', searched.first().headline)
@@ -493,7 +497,7 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
             headline=SearchHeadline(
                 'dialogue',
                 SearchQuery('brave sir robin', config='english'),
-                options={'HighlightAll': True}
+                options={'HighlightAll': True},
             ),
         )
         self.assertIn('HighlightAll=true', str(searched.query))
@@ -504,7 +508,7 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
             headline=SearchHeadline(
                 'dialogue',
                 SearchQuery('brave sir robin', config='english'),
-                options={'ShortWord': 6}
+                options={'ShortWord': 6},
             ),
         )
         self.assertIn('ShortWord=6', str(searched.query))
@@ -520,7 +524,7 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
                     'MaxFragments': 4,
                     'MaxWords': 3,
                     'MinWords': 1
-                }
+                },
             ),
         )
         self.assertIn('FragmentDelimiter', str(searched.query))
@@ -539,5 +543,5 @@ class SearchHeadlineTests(GrailTestData, PostgreSQLTestCase):
                     'InvalidOption': 'foo',
                     'AnotherInvalidOption': 'bar',
                     'MaxFragments': 4
-                }
+                },
             )

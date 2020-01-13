@@ -230,10 +230,10 @@ class SearchHeadline(SearchConfigurable, Func):
         'FragmentDelimiter',
     )
 
-    def __init__(self, expression, query, **extra):
+    def __init__(self, expression, query, config=None, **extra):
         if not hasattr(query, 'resolve_expression'):
             query = SearchQuery(query)
-        self.config = query.config
+        self.config = config
         options = extra.get('options') or {}
         self.options = {**self.options, **options}
         invalid_options = [option for option in self.options.keys() if option not in self.VALID_OPTIONS]

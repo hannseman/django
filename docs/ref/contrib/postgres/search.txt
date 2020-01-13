@@ -137,7 +137,7 @@ See :ref:`postgresql-fts-weighting-queries` for an explanation of the
 ``SearchHeadline``
 -------------------
 
-.. class:: SearchHeadline(expression, query, options=None)
+.. class:: SearchHeadline(expression, query, config=None, options=None)
 
 Accepts a field name or expression, a query, and options. Returns a string
 of fragments highlighting matches of the query. It can be used for
@@ -163,6 +163,9 @@ Usage example::
     '<b>Robin</b>. He was not at all afraid to be killed in nasty ways.
     <b>Brave</b>, <b>brave</b>, <b>brave</b>, <b>brave</b> <b>Sir</b>
     <b>Robin</b>'
+
+See :ref:`postgresql-fts-search-configuration` for an explanation of the
+``config`` parameter.
 
 Changing the search configuration
 =================================
