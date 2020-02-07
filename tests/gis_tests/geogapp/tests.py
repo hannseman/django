@@ -8,6 +8,7 @@ from django.contrib.gis.db import models
 from django.contrib.gis.db.models.functions import Area, Distance
 from django.contrib.gis.measure import D
 from django.db import NotSupportedError, connection
+from django.db.models import Index
 from django.db.models.functions import Cast
 from django.test import TestCase, skipIfDBFeature, skipUnlessDBFeature
 
@@ -154,3 +155,15 @@ class GeographyFunctionTests(FuncTestMixin, TestCase):
     def test_geodetic_area_raises_if_not_supported(self):
         with self.assertRaisesMessage(NotSupportedError, 'Area on geodetic coordinate systems not supported.'):
             Zipcode.objects.annotate(area=Area('poly')).get(code='77002')
+
+
+class GeographyIndexTest(TestCase):
+
+    @skipUnless(postgis, "This is a PostGIS-specific test")
+    def test_using_sql(self):
+        index = Index(fields=['point'])
+        editor = connection.schema_editor()
+        self.assertIn(
+            '%s USING' % editor.quote_name(City._meta.db_table),
+            str(index.create_sql(City, editor)),
+        )
