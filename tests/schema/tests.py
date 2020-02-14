@@ -2685,7 +2685,6 @@ class SchemaTests(TransactionTestCase):
             with self.assertRaises(DatabaseError):
                 editor.add_index(Author, index)
 
-    @skipIfDBFeature('supports_expression_indexes')
     def test_no_expression_index_support_forbidden(self):
         """
         Test adding functional indexes on non-supporting databases
@@ -2699,13 +2698,14 @@ class SchemaTests(TransactionTestCase):
             ),
             Index(fields=['height', Lower('name').asc()], name='dolor_idx'),
         ]
-
         for index in indexes:
             with self.subTest(index=index):
                 with warnings.catch_warnings(record=True) as warns:
                     warnings.simplefilter('always')
 
-                    with connection.schema_editor() as editor:
+                    with connection.schema_editor() as editor, mock.patch.object(
+                        editor.connection.features, 'supports_expression_indexes', False
+                    ):
                         index.create_sql(Author, editor)
                 self.assertEqual(len(warns), 1)
                 self.assertIn('Not creating expression index:', warns[0].message.args[0])
