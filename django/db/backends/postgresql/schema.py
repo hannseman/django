@@ -204,6 +204,12 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             return IndexColumns(table, columns, self.quote_name, col_suffixes=col_suffixes, opclasses=opclasses)
         return super()._index_columns(table, columns, col_suffixes, opclasses)
 
+    def _index_expressions(self, table, columns, col_suffixes, opclasses):
+        if opclasses:
+            noop_quote_name = lambda expression: expression
+            return IndexColumns(table, columns, noop_quote_name, col_suffixes=col_suffixes, opclasses=opclasses)
+        return super()._index_columns(table, columns, col_suffixes, opclasses)
+
     def add_index(self, model, index, concurrently=False):
         self.execute(index.create_sql(model, self, concurrently=concurrently), params=None)
 
@@ -221,7 +227,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     ):
         sql = self.sql_create_index if not concurrently else self.sql_create_index_concurrently
         return super()._create_index_sql(
-            model, fields, name=name, suffix=suffix, using=using, db_tablespace=db_tablespace,
+            model, fields=fields, name=name, suffix=suffix, using=using, db_tablespace=db_tablespace,
             col_suffixes=col_suffixes, sql=sql, opclasses=opclasses, condition=condition,
             include=include,
         )

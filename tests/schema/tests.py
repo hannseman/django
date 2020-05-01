@@ -2490,7 +2490,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'lower_func_idx'
-        index = Index(fields=[Lower('title').desc()], name=index_name)
+        index = Index(Lower('title').desc(), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
