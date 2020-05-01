@@ -2,6 +2,7 @@
 Helpers to manipulate deferred DDL statements that might need to be adjusted or
 discarded within when executing a migration.
 """
+from django.db.models.expressions import Col
 
 
 class Reference:
@@ -93,6 +94,52 @@ class Columns(TableColumns):
             return col
 
         return ', '.join(col_str(column, idx) for idx, column in enumerate(self.columns))
+
+
+class Expressions(Reference):
+    def __init__(self, table, expressions, compiler, quote_value, opclasses):
+        self.table = table
+        self.expressions = expressions
+        self.compiler = compiler
+        self.quote_value = quote_value
+        self.opclasses = opclasses
+
+    def references_table(self, table):
+        return self.table == table
+
+    def references_column(self, table, column):
+        columns = (col.target.column for col in self.compiler.query._gen_cols(self.expressions))
+        return self.table == table and column in columns
+
+    def rename_table_references(self, old_table, new_table):
+        if self.table == old_table:
+            self.table = new_table
+
+    def rename_column_references(self, table, old_column, new_column):
+        if self.table == table:
+            cols = self.compiler.query._gen_cols(self.expressions)
+            for index, col in enumerate(cols):
+                if col.target.column == old_column:
+                    # TODO: set_source_expressions somehow,
+                    # or can we mutable col.target.column?
+                    self.expressions[index] = col
+
+    def __str__(self):
+        sql_expressions = []
+        for index, expression in enumerate(self.expressions):
+            expression = expression.resolve_expression(self.compiler.query)
+            ordering = ''
+            if expression.ordered:
+                ordering = ' DESC' if expression.descending else ' ASC'
+            sql, params = self.compiler.compile(expression.get_source_expressions()[0])
+            try:
+                opclass = ' ' + self.opclasses[index]
+            except IndexError:
+                opclass = ''
+            sql = '(%s)%s%s' % (sql, opclass, ordering)
+            params = tuple(map(self.quote_value, params))
+            sql_expressions.append(sql % params)
+        return ', '.join(sql_expressions)
 
 
 class IndexName(TableColumns):
