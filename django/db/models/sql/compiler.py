@@ -299,7 +299,7 @@ class SQLCompiler:
                 if isinstance(field, Value):
                     # output_field must be resolved for constants.
                     field = Cast(field, field.output_field)
-                if not isinstance(field, OrderBy):
+                if not field.ordered:
                     field = field.asc()
                 if not self.query.standard_ordering:
                     field = field.copy()
@@ -742,11 +742,12 @@ class SQLCompiler:
 
             results = []
             for item in opts.ordering:
-                if hasattr(item, 'resolve_expression') and not isinstance(item, OrderBy):
-                    item = item.desc() if descending else item.asc()
-                if isinstance(item, OrderBy):
-                    results.append((item, False))
-                    continue
+                if hasattr(item, 'resolve_expression'):
+                    if item.ordered:
+                        results.append((item, False))
+                        continue
+                    else:
+                        item = item.desc() if descending else item.asc()
                 results.extend(self.find_ordering_name(item, opts, alias,
                                                        order, already_seen))
             return results

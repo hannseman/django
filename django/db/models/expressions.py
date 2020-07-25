@@ -260,6 +260,10 @@ class BaseExpression:
     def field(self):
         return self.output_field
 
+    @property
+    def ordered(self):
+        return isinstance(self, OrderBy)
+
     @cached_property
     def output_field(self):
         """Return the output type of this expressions."""
