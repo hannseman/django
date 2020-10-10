@@ -299,8 +299,8 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
     def test_ops_class_func_index(self):
         index_name = 'test_ops_class_func_index'
         index = Index(
+            Lower('body'),
             name=index_name,
-            fields=[Lower('body')],
             opclasses=['text_pattern_ops'],
         )
         with connection.schema_editor() as editor:
@@ -312,8 +312,8 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
     def test_ops_class_partial_func_index(self):
         index_name = 'test_ops_class_partial_func_index'
         index = Index(
+            Lower('body'),
             name=index_name,
-            fields=[Lower('body')],
             opclasses=['text_pattern_ops'],
             condition=Q(headline__contains='China'),
         )
@@ -326,8 +326,8 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
     def test_ops_class_partial_descending_tablespace_func_index(self):
         index_name = 'test_ops_class_partial_tablespace_func_index'
         index = Index(
+            Lower('body').desc(),
             name=index_name,
-            fields=[Lower('body').desc()],
             opclasses=['text_pattern_ops'],
             condition=Q(headline__contains='China'),
             db_tablespace='pg_default',
@@ -508,7 +508,7 @@ class PartialIndexTests(TransactionTestCase):
         # Define the index
         index_name = 'partial_func_idx'
         index = Index(
-            fields=[Lower('headline').desc()],
+            Lower('headline').desc(),
             name=index_name,
             condition=Q(pub_date__isnull=False),
         )

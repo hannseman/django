@@ -230,7 +230,7 @@ class OperationTestBase(MigrationTestBase):
         if expression_index:
             operations.append(migrations.AddIndex(
                 'Pony',
-                models.Index(fields=[Abs('weight')], name='pony_test_fun_idx'),
+                models.Index(Abs('weight'), name='pony_test_fun_idx'),
             ))
         if constraints:
             for constraint in constraints:

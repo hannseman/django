@@ -2490,7 +2490,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'lower_func_idx'
-        index = Index(fields=[Lower('title').desc()], name=index_name)
+        index = Index(Lower('title').desc(), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2523,7 +2523,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'lower_upper_func_idx'
-        index = Index(fields=[Lower('name'), Upper('name')], name=index_name)
+        index = Index(Lower('name'), Upper('name'), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2559,7 +2559,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'f_func_idx'
-        index = Index(fields=[F('title')], name=index_name)
+        index = Index(F('title'), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2590,7 +2590,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'cast_func_idx'
-        index = Index(fields=[Cast('weight', FloatField())], name=index_name)
+        index = Index(Cast('weight', FloatField()), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2615,8 +2615,8 @@ class SchemaTests(TransactionTestCase):
         """
         Test not setting index name when creating an expression based index
         """
-        with self.assertRaisesMessage(ValueError, 'Index.name needs to be set when fields contain expressions.'):
-            Index(fields=[Lower('title').desc()])
+        with self.assertRaisesMessage(ValueError, 'Index.name needs to be set when passed expressions.'):
+            Index(Lower('title').desc())
 
     @skipUnlessDBFeature('supports_expression_indexes')
     def test_func_index_field_and_expression(self):
@@ -2631,7 +2631,7 @@ class SchemaTests(TransactionTestCase):
         # Define the index
         index_name = 'composite_mixed_func_idx'
         index = Index(
-            fields=['-author', Lower('title').asc(), 'pub_date'],
+            F('author').desc(), Lower('title').asc(), 'pub_date',
             name=index_name
         )
 
@@ -2677,7 +2677,7 @@ class SchemaTests(TransactionTestCase):
 
         # Define the index
         index_name = 'math_func_idx'
-        index = Index(fields=[F('height') / (F('weight') + Value(5))], name=index_name)
+        index = Index(F('height') / (F('weight') + Value(5)), name=index_name)
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2712,7 +2712,7 @@ class SchemaTests(TransactionTestCase):
         """
         Test creating a functional index on an invalid field reference
         """
-        index = Index(fields=[Lower('blub')], name='dolor_idx')
+        index = Index(Lower('blub'), name='dolor_idx')
         msg = "Cannot resolve keyword 'blub' into field. Choices are: height, id, name, uuid, weight"
         with self.assertRaisesMessage(FieldError, msg):
             with connection.schema_editor() as editor:
@@ -2728,7 +2728,7 @@ class SchemaTests(TransactionTestCase):
             editor.create_model(Author)
 
         # Define the index
-        index = Index(fields=[Random()], name='random_idx')
+        index = Index(Random(), name='random_idx')
 
         # Add the index
         with connection.schema_editor() as editor:
@@ -2740,13 +2740,13 @@ class SchemaTests(TransactionTestCase):
         Test adding functional indexes on non-supporting databases
         """
         indexes = [
-            Index(fields=[Lower('name')], name='dolor_idx'),
-            Index(fields=[Lower('name').desc()], name='dolor_idx'),
+            Index(Lower('name'), name='dolor_idx'),
+            Index(Lower('name').desc(), name='dolor_idx'),
             Index(
-                fields=[OrderBy(OrderBy(Lower(Lower(F('name')), descending=True), descending=False))],
+                OrderBy(OrderBy(Lower(Lower(F('name')), descending=True), descending=False)),
                 name='dolor_idx'
             ),
-            Index(fields=['height', Lower('name').asc()], name='dolor_idx'),
+            Index('height', Lower('name').asc(), name='dolor_idx'),
         ]
         for index in indexes:
             with self.subTest(index=index):

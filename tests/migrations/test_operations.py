@@ -1944,7 +1944,7 @@ class OperationTests(OperationTestBase):
     def test_add_expression_index(self):
         index_name = "test_adfunin_abs_weight_idx"
         project_state = self.set_up_test_model("test_adfunin")
-        index = models.Index(fields=[Abs("weight")], name=index_name)
+        index = models.Index(Abs("weight"), name=index_name)
         operation = migrations.AddIndex("Pony", index)
         self.assertEqual(
             operation.describe(),

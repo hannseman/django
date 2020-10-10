@@ -465,9 +465,7 @@ class SchemaTests(PostgreSQLTestCase):
         Test creating a B-Tree index on key in a JSONB-field
         """
         index_name = 'jsonb_key_btree'
-        index = Index(
-            fields=[KeyTransform('some_key', 'field')], name=index_name
-        )
+        index = Index(KeyTransform('some_key', 'field'), name=index_name)
         with connection.schema_editor() as editor:
             editor.add_index(JSONModel, index)
             self.assertIn('->', str(index.create_sql(JSONModel, editor)))
@@ -481,9 +479,7 @@ class SchemaTests(PostgreSQLTestCase):
         Test creating a B-Tree index on a key casted as integer in a JSONB-field
         """
         index_name = 'jsonb_key_btree'
-        index = Index(
-            fields=[Cast(KeyTextTransform('some_key', 'field'), IntegerField())], name=index_name
-        )
+        index = Index(Cast(KeyTextTransform('some_key', 'field'), IntegerField()), name=index_name)
         with connection.schema_editor() as editor:
             editor.add_index(JSONModel, index)
             self.assertIn('->', str(index.create_sql(JSONModel, editor)))
@@ -497,9 +493,7 @@ class SchemaTests(PostgreSQLTestCase):
         Test creating an GIN index on a field casted as tsvector
         """
         index_name = 'search_vector_cast'
-        index = GinIndex(
-            fields=[Cast('field', SearchVectorField())], name=index_name
-        )
+        index = GinIndex(Cast('field', SearchVectorField()), name=index_name)
         with connection.schema_editor() as editor:
             editor.add_index(TextFieldModel, index)
             self.assertIn('::TSVECTOR', str(index.create_sql(TextFieldModel, editor)).upper())
@@ -515,9 +509,7 @@ class SchemaTests(PostgreSQLTestCase):
         Test creating an GIN index on a SearchVector
         """
         index_name = 'search_vector'
-        index = GinIndex(
-            fields=[SearchVector('scene', 'setting', config='english')], name=index_name
-        )
+        index = GinIndex(SearchVector('scene', 'setting', config='english'), name=index_name)
         with connection.schema_editor() as editor:
             editor.add_index(Scene, index)
         constraints = self.get_constraints(Scene._meta.db_table)
@@ -533,7 +525,7 @@ class SchemaTests(PostgreSQLTestCase):
         """
         index_name = 'func_tablespace'
         index = Index(
-            fields=[Lower('field').desc()],
+            Lower('field').desc(),
             name=index_name,
             db_tablespace='pg_default'
         )
