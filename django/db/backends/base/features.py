@@ -317,10 +317,10 @@ class BaseDatabaseFeatures:
     }
 
     # Does the backend support indexes on expressions?
-    supports_expression_indexes = True
+    supports_expression_indexes = False
 
     # Does the backend support indexes on columns with expression syntax?
-    supports_expression_indexes_on_columns = True
+    supports_expression_indexes_on_columns = False
 
     def __init__(self, connection):
         self.connection = connection
