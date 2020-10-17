@@ -354,3 +354,8 @@ class QuerySetSetOperationTests(TestCase):
             with self.subTest(combinator=combinator):
                 with self.assertRaisesMessage(NotSupportedError, msg % combinator):
                     getattr(qs, combinator)(qs).get(num=2)
+
+    def test_union_with_ordered_qs(self):
+        qs1 = Number.objects.all().order_by('pk')
+        qs2 = Number.objects.none().union(qs1).order_by('pk')
+        self.assertNumbersEqual(qs1, qs2.values_list('num', flat=True))
