@@ -30,7 +30,7 @@ try:
     from django.contrib.postgres.aggregates import ArrayAgg
     from django.contrib.postgres.fields import ArrayField
     from django.contrib.postgres.fields.array import (
-        IndexTransform, SliceTransform,
+        ArraySubquery, ArrayLenTransform, IndexTransform, SliceTransform,
     )
     from django.contrib.postgres.forms import (
         SimpleArrayField, SplitArrayField, SplitArrayWidget,
@@ -499,6 +499,43 @@ class TestQuerying(PostgreSQLTestCase):
                 count=models.Count('pk'),
             ).get()['array_length'],
             1,
+        )
+
+    def test_filter_by_array_subquery(self):
+        self.assertSequenceEqual(
+            NullableIntegerArrayModel.objects.alias(
+                same_sized_fields=ArraySubquery(
+                    NullableIntegerArrayModel.objects.filter(
+                        field__len=ArrayLenTransform(models.OuterRef('field'))
+                    ).values('field')
+                )
+            ).filter(same_sized_fields__len=2),
+            self.objs[0:2]
+        )
+
+    def test_annotated_array_subquery(self):
+        self.assertSequenceEqual(
+            NullableIntegerArrayModel.objects.annotate(
+                sibling_ids=ArraySubquery(
+                    NullableIntegerArrayModel.objects.exclude(
+                        id=models.OuterRef('id')
+                    ).values('id')
+                )
+            ).get(id=self.objs[0].id).sibling_ids,
+            [obj.id for obj in self.objs[1:]]
+        )
+
+    def test_group_by_with_annotated_array_subquery(self):
+        self.assertSequenceEqual(
+            NullableIntegerArrayModel.objects.annotate(
+                sibling_ids=ArraySubquery(
+                    NullableIntegerArrayModel.objects.exclude(
+                        id=models.OuterRef('id')
+                    ).values('id')
+                ),
+                sibling_count=models.Max(ArrayLenTransform('sibling_ids'))
+            ).values_list('sibling_count', flat=True),
+            [len(self.objs) - 1 for _ in self.objs]
         )
 
 

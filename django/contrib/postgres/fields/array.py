@@ -4,7 +4,7 @@ from django.contrib.postgres import lookups
 from django.contrib.postgres.forms import SimpleArrayField
 from django.contrib.postgres.validators import ArrayMaxLengthValidator
 from django.core import checks, exceptions
-from django.db.models import Field, IntegerField, Transform
+from django.db.models import Field, IntegerField, Subquery, Transform
 from django.db.models.fields.mixins import CheckFieldDefaultMixin
 from django.db.models.lookups import Exact, In
 from django.utils.translation import gettext_lazy as _
@@ -302,3 +302,7 @@ class SliceTransformFactory:
 
     def __call__(self, *args, **kwargs):
         return SliceTransform(self.start, self.end, *args, **kwargs)
+
+
+class ArraySubquery(Subquery):
+    template = 'ARRAY(%(subquery)s)'
