@@ -232,3 +232,10 @@ class Node(models.Model):
 
     class Meta:
         apps = new_apps
+
+
+class JSONModel(models.Model):
+    field = models.JSONField()
+
+    class Meta:
+        required_db_features = {'supports_json_field'}

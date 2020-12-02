@@ -17,6 +17,7 @@ from django.db.models import (
     SmallAutoField, SmallIntegerField, TextField, TimeField, UniqueConstraint,
     UUIDField, Value,
 )
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Abs, Cast, Lower, Random, Upper
 from django.db.transaction import TransactionManagementError, atomic
 from django.test import (
@@ -36,8 +37,8 @@ from .models import (
     AuthorWithIndexedNameAndBirthday, AuthorWithUniqueName,
     AuthorWithUniqueNameAndBirthday, Book, BookForeignObj, BookWeak,
     BookWithLongName, BookWithO2O, BookWithoutAuthor, BookWithSlug, IntegerPK,
-    Node, Note, NoteRename, Tag, TagIndexed, TagM2MTest, TagUniqueRename,
-    Thing, UniqueTest, new_apps,
+    JSONModel, Node, Note, NoteRename, Tag, TagIndexed, TagM2MTest,
+    TagUniqueRename, Thing, UniqueTest, new_apps,
 )
 
 
@@ -2710,6 +2711,30 @@ class SchemaTests(TransactionTestCase):
         with connection.schema_editor() as editor:
             self.assertIsNone(editor.add_index(Author, index))
             self.assertIsNone(editor.remove_index(Author, index))
+
+    @unittest.skipIf(connection.vendor == 'mysql', "MySQL doesn't support functional indexes returning JSON")
+    @skipUnlessDBFeature('supports_expression_indexes', 'supports_json_field')
+    def test_func_index_with_jsonb_key_transform(self):
+        index = Index(KeyTransform('some_key', 'field'), name='jsonb_key_btree')
+        with connection.schema_editor() as editor:
+            editor.add_index(JSONModel, index)
+        self.assertIn(index.name, self.get_constraints(JSONModel._meta.db_table))
+        with connection.schema_editor() as editor:
+            editor.remove_index(JSONModel, index)
+        self.assertNotIn(index.name, self.get_constraints(JSONModel._meta.db_table))
+
+    @skipUnlessDBFeature('supports_expression_indexes', 'supports_json_field')
+    def test_func_index_with_jsonb_cast_key_transform(self):
+        index = Index(Cast(KeyTextTransform('some_key', 'field'), IntegerField()), name='jsonb_key_btree')
+        with connection.schema_editor() as editor:
+            editor.add_index(JSONModel, index)
+            sql = index.create_sql(JSONModel, editor)
+        table = JSONModel._meta.db_table
+        self.assertIn(index.name, self.get_constraints(table))
+        self.assertIs(sql.references_column(table, 'field'), True)
+        with connection.schema_editor() as editor:
+            editor.remove_index(JSONModel, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
 
     def test_primary_key(self):
         """
