@@ -323,6 +323,8 @@ class BaseDatabaseFeatures:
 
     # Does the backend support indexes on expressions?
     supports_expression_indexes = False
+    # Does the backend support custom collations in indexes
+    supports_index_collations = False
 
     def __init__(self, connection):
         self.connection = connection

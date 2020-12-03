@@ -88,11 +88,6 @@ class SimpleIndexesTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, msg):
             models.Index(name='test_opclass', fields=['field', 'other'], opclasses=['jsonb_path_ops'])
 
-    def test_opclasses_and_expressions_same_length(self):
-        msg = 'Index arguments and Index.opclasses must have the same number of elements.'
-        with self.assertRaisesMessage(ValueError, msg):
-            models.Index(Upper('field'), Upper('other'), name='test_opclass', opclasses=['jsonb_path_ops'])
-
     def test_condition_requires_index_name(self):
         with self.assertRaisesMessage(ValueError, 'An index must be named to use condition.'):
             models.Index(condition=models.Q(pages__gt=400))
@@ -100,6 +95,11 @@ class SimpleIndexesTests(SimpleTestCase):
     def test_fields_expressions_requires_index_name(self):
         with self.assertRaisesMessage(ValueError, 'Index.name needs to be set when passed expressions.'):
             models.Index(Lower('field'))
+
+    def test_fields_expressions_with_opclass_arg(self):
+        msg = 'Index.opclasses can\'t be used with expressions. Use django.contrib.postgres.functions.OpClass instead'
+        with self.assertRaisesMessage(ValueError, msg):
+            models.Index(Lower('field'), name='test_opclass', opclasses=['jsonb_path_ops'])
 
     def test_condition_must_be_q(self):
         with self.assertRaisesMessage(ValueError, 'Index.condition must be a Q instance.'):

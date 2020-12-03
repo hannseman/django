@@ -2,8 +2,9 @@ from django.db import connection
 from django.db.backends.ddl_references import (
     Columns, ForeignKeyName, IndexExpressions, IndexName, Statement, Table,
 )
-from django.db.models import CharField, F, Model
+from django.db.models import CharField, ExpressionList, F, Model
 from django.db.models.functions import Upper
+from django.db.models.indexes import IndexExpression
 from django.test import SimpleTestCase, TransactionTestCase
 
 
@@ -200,7 +201,14 @@ class ExpressionsTests(TransactionTestCase):
         super().setUp()
         compiler = self.Foo.objects.all().query.get_compiler('default')
         self.expressions = IndexExpressions(
-            self.Foo._meta.db_table, [F('bar'), F('baz').desc(), Upper('baz')], compiler, lambda v: v, []
+            table=self.Foo._meta.db_table,
+            expressions=ExpressionList(
+                IndexExpression(F('bar')),
+                IndexExpression(F('baz').desc()),
+                IndexExpression(Upper('baz'))
+            ),
+            compiler=compiler,
+            quote_value=lambda v: v
         )
 
     def test_references_table(self):

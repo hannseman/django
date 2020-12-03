@@ -181,6 +181,12 @@ index will be based on.
 ``Index(Lower('title').desc(), 'pub_date', name='lower_title_date_idx')``
 would create an index on the lowercase value of the ``title`` field in
 descending order and the ``pub_date`` field in the default ascending order.
+When using expressions in combination with ordering,
+:class:`~django.db.models.functions.Collate` and
+:class:`~django.contrib.postgres.indexes.OpClass` it's important that they are
+the topmost expressions, i.e ``Index(Lower(F('name').desc()), name='name_idx')``
+is not allowed. Instead it should be written as
+``Index(Lower(F('name')).desc()``.
 Using ``F`` expressions in a construct like
 ``Index(F('height') * F('weight'), name='math_idx')`` allows
 constructing indexes on mathematical operations.

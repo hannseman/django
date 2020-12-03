@@ -72,6 +72,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         'swedish_ci': 'SWEDISH_CI',
     }
     supports_expression_indexes = True
+    supports_index_collations = True
 
     @cached_property
     def introspected_field_types(self):

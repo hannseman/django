@@ -141,3 +141,23 @@ available from the ``django.contrib.postgres.indexes`` module.
     tune how packed the index pages will be. PostgreSQL's default is 90.
 
     .. _fillfactor: https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-STORAGE-PARAMETERS
+
+``OpClass``
+===============
+
+.. class:: OpClass(*expressions, opclass)
+
+     A special expression to be used when creating indexes on expressions with
+     a custom operator class. Set the ``opclass`` parameter to the `name of the
+     operator class
+     <https://www.postgresql.org/docs/current/indexes-opclass.html>`_ that
+     should be used when creating the index.
+
+    For example::
+
+        Index(OpClass(Lower('username'), opclass='varchar_pattern_ops'))
+
+    creates an index on ``Lower('username')`` using ``varchar_pattern_ops``.
+
+    To use the ``OpClass`` expression, ``'django.contrib.postgres'`` must be in
+    your :setting:`INSTALLED_APPS`.

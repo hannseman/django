@@ -296,52 +296,6 @@ class SchemaIndexesPostgreSQLTests(TransactionTestCase):
                 str(index.create_sql(Article, editor)),
             )
 
-    def test_ops_class_func_index(self):
-        index_name = 'test_ops_class_func_index'
-        index = Index(
-            Lower('body'),
-            name=index_name,
-            opclasses=['text_pattern_ops'],
-        )
-        with connection.schema_editor() as editor:
-            editor.add_index(IndexedArticle2, index)
-        with editor.connection.cursor() as cursor:
-            cursor.execute(self.get_opclass_query % index_name)
-            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
-
-    def test_ops_class_partial_func_index(self):
-        index_name = 'test_ops_class_partial_func_index'
-        index = Index(
-            Lower('body'),
-            name=index_name,
-            opclasses=['text_pattern_ops'],
-            condition=Q(headline__contains='China'),
-        )
-        with connection.schema_editor() as editor:
-            editor.add_index(IndexedArticle2, index)
-        with editor.connection.cursor() as cursor:
-            cursor.execute(self.get_opclass_query % index_name)
-            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
-
-    def test_ops_class_partial_descending_tablespace_func_index(self):
-        index_name = 'test_ops_class_partial_tablespace_func_index'
-        index = Index(
-            Lower('body').desc(),
-            name=index_name,
-            opclasses=['text_pattern_ops'],
-            condition=Q(headline__contains='China'),
-            db_tablespace='pg_default',
-        )
-        with connection.schema_editor() as editor:
-            editor.add_index(IndexedArticle2, index)
-            self.assertIn(
-                'TABLESPACE "pg_default" ',
-                str(index.create_sql(IndexedArticle2, editor))
-            )
-        with editor.connection.cursor() as cursor:
-            cursor.execute(self.get_opclass_query % index_name)
-            self.assertCountEqual(cursor.fetchall(), [('text_pattern_ops', index_name)])
-
 
 @skipUnless(connection.vendor == 'mysql', 'MySQL tests')
 class SchemaIndexesMySQLTests(TransactionTestCase):

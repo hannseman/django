@@ -1,5 +1,5 @@
 from django.db import NotSupportedError
-from django.db.models import Index
+from django.db.models import Func, Index
 from django.utils.functional import cached_property
 
 __all__ = [
@@ -223,3 +223,10 @@ class SpGistIndex(PostgresIndex):
         if self.fillfactor is not None:
             with_params.append('fillfactor = %d' % self.fillfactor)
         return with_params
+
+
+class OpClass(Func):
+    template = '%(expressions)s %(opclass)s'
+
+    def __init__(self, *expressions, opclass):
+        super(OpClass, self).__init__(*expressions, opclass=opclass)

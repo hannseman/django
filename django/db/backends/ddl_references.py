@@ -4,8 +4,6 @@ discarded within when executing a migration.
 """
 from copy import deepcopy
 
-from django.db.models.expressions import Col
-
 
 class Reference:
     """Base class that defines the reference interface."""
@@ -204,44 +202,25 @@ class Statement(Reference):
 
 
 class IndexExpressions(TableColumns):
-    def __init__(self, table, expressions, compiler, quote_value, opclasses):
+    def __init__(self, table, expressions, compiler, quote_value):
         self.table = table
         self.compiler = compiler
-        self.expressions = [
-            expression.resolve_expression(self.compiler.query) for expression in expressions
-        ]
+        self.expressions = expressions.resolve_expression(self.compiler.query)
         self.quote_value = quote_value
-        self.opclasses = opclasses
-        self.columns = (col.target.column for col in self.compiler.query._gen_cols(self.expressions))
+        self.columns = [col.target.column for col in self.compiler.query._gen_cols([self.expressions])]
 
     def rename_column_references(self, table, old_column, new_column):
         if self.table != table:
             return
-        expressions = [deepcopy(expression) for expression in self.expressions]
+        expressions = deepcopy(self.expressions)
         self.columns = []
-        for col in self.compiler.query._gen_cols(expressions):
+        for col in self.compiler.query._gen_cols([expressions]):
             if col.target.column == old_column:
                 col.target.column = new_column
             self.columns.append(col.target.column)
         self.expressions = expressions
 
     def __str__(self):
-        sql_expressions = []
-        for index, expression in enumerate(self.expressions):
-            ordering = ''
-            if expression.ordered:
-                ordering = ' DESC' if expression.descending else ' ASC'
-                expression = expression.get_source_expressions()[0]
-            sql, params = self.compiler.compile(expression)
-            try:
-                opclass = ' ' + self.opclasses[index]
-            except IndexError:
-                opclass = ''
-            if isinstance(expression, Col):
-                template = '%s%s%s'
-            else:
-                template = '(%s)%s%s'
-            sql = template % (sql, opclass, ordering)
-            params = tuple(map(self.quote_value, params))
-            sql_expressions.append(sql % params)
-        return ', '.join(sql_expressions)
+        sql, params = self.compiler.compile(self.expressions)
+        params = tuple(map(self.quote_value, params))
+        return sql % params

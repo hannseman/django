@@ -1030,7 +1030,7 @@ class BaseDatabaseSchemaEditor:
                 self._index_columns(table, columns, col_suffixes, opclasses)
                 if columns
                 else IndexExpressions(
-                    table, expressions, compiler, self.quote_value, opclasses
+                    table, expressions, compiler, self.quote_value
                 )
             ),
             extra=tablespace_sql,

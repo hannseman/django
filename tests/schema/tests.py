@@ -13,12 +13,13 @@ from django.db.models import (
     CASCADE, PROTECT, AutoField, BigAutoField, BigIntegerField, BinaryField,
     BooleanField, CharField, CheckConstraint, DateField, DateTimeField, F,
     FloatField, ForeignKey, ForeignObject, Index, IntegerField,
-    ManyToManyField, Model, OneToOneField, PositiveIntegerField, Q, SlugField,
-    SmallAutoField, SmallIntegerField, TextField, TimeField, UniqueConstraint,
-    UUIDField, Value,
+    ManyToManyField, Model, OneToOneField, OrderBy, PositiveIntegerField, Q,
+    SlugField, SmallAutoField, SmallIntegerField, TextField, TimeField,
+    UniqueConstraint, UUIDField, Value,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Abs, Cast, Lower, Random, Upper
+from django.db.models.functions import Abs, Cast, Collate, Lower, Random, Upper
+from django.db.models.indexes import IndexExpression
 from django.db.transaction import TransactionManagementError, atomic
 from django.test import (
     TransactionTestCase, skipIfDBFeature, skipUnlessDBFeature,
@@ -2496,6 +2497,64 @@ class SchemaTests(TransactionTestCase):
         assertion('text_field', self.get_indexes(AuthorTextFieldWithIndex._meta.db_table))
 
     @skipUnlessDBFeature('supports_expression_indexes')
+    def test_index_with_f_expressions(self):
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Tag)
+        # Define the index
+        index = Index('slug', F('title').desc(), name='field_exp_idx')
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Tag, index)
+            sql = index.create_sql(Tag, editor)
+        table = Tag._meta.db_table
+        # Ensure the index is there
+        self.assertIn(index.name, self.get_constraints(table))
+        if connection.features.supports_index_column_ordering:
+            self.assertIndexOrder(Tag._meta.db_table, index.name, ['ASC', 'DESC'])
+        # Check that the vital SQL parts are there
+        self.assertIs(sql.references_column(table, 'slug'), True)
+        self.assertIs(sql.references_column(table, 'title'), True)
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Tag, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
+    @skipUnlessDBFeature('supports_expression_indexes', 'supports_index_collations')
+    def test_index_with_collate_f_expressions(self):
+        collation = connection.features.test_collations.get('non_default')
+        if not collation:
+            self.skipTest(
+                'This backend does not support case-insensitive collations.'
+            )
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Tag)
+        # Define the index
+        index = Index(
+            Collate('slug', collation=collation),
+            Collate(F('title').desc(), collation=collation),
+            name='field_exp_idx'
+        )
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(Tag, index)
+            sql = index.create_sql(Tag, editor)
+        table = Tag._meta.db_table
+        # Ensure the index is there
+        self.assertIn(index.name, self.get_constraints(table))
+        if connection.features.supports_index_column_ordering:
+            self.assertIndexOrder(Tag._meta.db_table, index.name, ['ASC', 'DESC'])
+        # Check that the vital SQL parts are there
+        self.assertIs(sql.references_column(table, 'slug'), True)
+        self.assertIs(sql.references_column(table, 'title'), True)
+        self.assertIn('COLLATE %s' % editor.quote_name(collation), str(sql))
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Tag, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
+    @skipUnlessDBFeature('supports_expression_indexes')
     def test_func_index(self):
         # Create the table
         with connection.schema_editor() as editor:
@@ -2543,27 +2602,6 @@ class SchemaTests(TransactionTestCase):
         # Drop the index
         with connection.schema_editor() as editor:
             editor.remove_index(Author, index)
-        self.assertNotIn(index.name, self.get_constraints(table))
-
-    @skipUnlessDBFeature('supports_expression_indexes')
-    def test_func_index_with_f_expressions(self):
-        # Create the table
-        with connection.schema_editor() as editor:
-            editor.create_model(Tag)
-        # Define the index
-        index = Index(F('title'), name='f_func_idx')
-        # Add the index
-        with connection.schema_editor() as editor:
-            editor.add_index(Tag, index)
-            sql = index.create_sql(Tag, editor)
-        table = Tag._meta.db_table
-        # Ensure the index is there
-        self.assertIn(index.name, self.get_constraints(table))
-        # Check that the vital SQL parts are there
-        self.assertIs(sql.references_column(table, 'title'), True)
-        # Drop the index
-        with connection.schema_editor() as editor:
-            editor.remove_index(Tag, index)
         self.assertNotIn(index.name, self.get_constraints(table))
 
     @skipUnlessDBFeature('supports_expression_indexes')
@@ -2650,6 +2688,48 @@ class SchemaTests(TransactionTestCase):
             editor.remove_index(Book, index)
         self.assertNotIn(index.name, self.get_constraints(table))
 
+    @skipUnlessDBFeature('supports_expression_indexes', 'supports_index_collations')
+    def test_func_index_with_custom_collation(self):
+        collation = connection.features.test_collations.get('non_default')
+        if not collation:
+            self.skipTest(
+                'This backend does not support case-insensitive collations.'
+            )
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(BookWithSlug)
+        # Define the index
+        index = Index(
+            Collate(F('title'), collation=collation).desc(),
+            Collate(Cast('author', TextField()).desc(), collation=collation),
+            Collate('slug', collation=collation),
+            name='composite_collate_func_idx'
+        )
+        # Add the index
+        with connection.schema_editor() as editor:
+            editor.add_index(BookWithSlug, index)
+            sql = index.create_sql(BookWithSlug, editor)
+        table = Book._meta.db_table
+        # Ensure the index is there
+        constraints = self.get_constraints(table)
+        # SQLite does not support introspection of expressions in indexes
+        # https://www.sqlite.org/pragma.html#pragma_index_xinfo
+        if connection.features.supports_index_column_ordering and not connection.vendor == 'sqlite':
+            self.assertIndexOrder(table, index.name, ['DESC', 'DESC', 'ASC'])
+        self.assertEqual(len(constraints[index.name]['columns']), 3)
+        self.assertEqual(constraints[index.name]['columns'][0], 'title')
+        self.assertEqual(constraints[index.name]['columns'][-1], 'slug')
+        # Check that the vital SQL parts are there
+        self.assertIs(sql.references_column(table, 'title'), True)
+        self.assertIs(sql.references_column(table, 'author_id'), True)
+        self.assertIs(sql.references_column(table, 'slug'), True)
+        self.assertIn('COLLATE %s' % editor.quote_name(collation), str(sql))
+        # Drop the index
+        with connection.schema_editor() as editor:
+            editor.remove_index(Book, index)
+        self.assertNotIn(index.name, self.get_constraints(table))
+
     @skipUnlessDBFeature('supports_expression_indexes')
     def test_func_index_math_expression(self):
         # Create the table
@@ -2698,6 +2778,26 @@ class SchemaTests(TransactionTestCase):
         # Add the index
         with connection.schema_editor() as editor:
             with self.assertRaises(DatabaseError):
+                editor.add_index(Author, index)
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_create_index_with_multiple_wrapper_references(self):
+        index = Index(OrderBy(F('name').desc(), descending=True), name='err_index')
+        msg = 'Multiple references to %s can\'t be used in an indexed expression.' % (
+            ','.join(map(str, IndexExpression.wrapper_classes))
+        )
+        with connection.schema_editor() as editor:
+            with self.assertRaisesMessage(ValueError, msg):
+                editor.add_index(Author, index)
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_create_index_with_invalid_topmost_expressions(self):
+        index = Index(Upper(F('name').desc()), name='err_index')
+        msg = 'Indexed expressions containing %s needs to have these as topmost expressions.' % (
+            ','.join(map(str, IndexExpression.wrapper_classes))
+        )
+        with connection.schema_editor() as editor:
+            with self.assertRaisesMessage(ValueError, msg):
                 editor.add_index(Author, index)
 
     @skipIfDBFeature('supports_expression_indexes')

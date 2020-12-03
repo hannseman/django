@@ -1,7 +1,9 @@
 from django.db.backends.utils import names_digest, split_identifier
-from django.db.models.expressions import F
+from django.db.models.expressions import Col, ExpressionList, F, Func, OrderBy
+from django.db.models.functions import Collate
 from django.db.models.query_utils import Q
 from django.db.models.sql import Query
+from django.utils.functional import partition
 
 __all__ = ['Index']
 
@@ -40,11 +42,15 @@ class Index:
             raise ValueError("'fields' cannot be used together with expressions.")
         if expressions and not name:
             raise ValueError('Index.name needs to be set when passed expressions.')
-        if opclasses:
-            if expressions and len(expressions) != len(opclasses):
-                raise ValueError('Index arguments and Index.opclasses must have the same number of elements.')
-            elif fields and len(fields) != len(opclasses):
-                raise ValueError('Index.fields and Index.opclasses must have the same number of elements.')
+        if expressions and opclasses:
+            raise ValueError(
+                'Index.opclasses can\'t be used with expressions. '
+                'Use django.contrib.postgres.functions.OpClass instead.'
+            )
+        if opclasses and len(fields) != len(opclasses):
+            raise ValueError(
+                'Index.fields and Index.opclasses must have the same number of elements.'
+            )
         if include and not name:
             raise ValueError('A covering index must be named.')
         if not isinstance(include, (type(None), list, tuple)):
@@ -56,11 +62,7 @@ class Index:
         self.condition = condition
         self.include = tuple(include) if include else ()
 
-        self.field_names = [
-            field_name.lstrip('-')
-            for field_name in self.fields
-        ]
-        # TODO: Do we need to keep original args for `deconstruct()` or can we convert strings to `F()`?
+        self.field_names = [field_name.lstrip('-') for field_name in self.fields]
         self.expressions = tuple(
             F(expression) if isinstance(expression, str) else expression
             for expression in expressions
@@ -105,10 +107,13 @@ class Index:
             fields, col_suffixes = zip(*field_orders)
         include = [model._meta.get_field(field_name).column for field_name in self.include]
         condition = self._get_condition_sql(model, schema_editor)
+        expressions = ExpressionList(
+            *[IndexExpression(expression) for expression in self.expressions]
+        ) if self.expressions else None
         return schema_editor._create_index_sql(
             model, fields=fields, name=self.name, using=using, db_tablespace=self.db_tablespace,
             col_suffixes=col_suffixes, opclasses=self.opclasses, condition=condition,
-            include=include, expressions=self.expressions, **kwargs,
+            include=include, expressions=expressions, **kwargs,
         )
 
     def remove_sql(self, model, schema_editor, **kwargs):
@@ -178,3 +183,60 @@ class Index:
         if self.__class__ == other.__class__:
             return self.deconstruct() == other.deconstruct()
         return NotImplemented
+
+
+class IndexExpression(Func):
+    """
+    Applies correct order and wrapping of expressions suitable for CREATE INDEX statements
+    """
+    template = '%(expressions)s'
+    wrapper_classes = (OrderBy, Collate)
+
+    @classmethod
+    def register_wrappers(cls, *wrapper_classes):
+        cls.wrapper_classes = wrapper_classes
+
+    def resolve_expression(
+        self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False
+    ):
+        expressions = list(self.flatten())
+        index_expressions, wrappers = partition(
+            lambda e: isinstance(e, self.wrapper_classes), expressions
+        )
+        wrapper_types = list(map(type, wrappers))
+        if len(wrapper_types) != len(set(wrapper_types)):
+            raise ValueError(
+                'Multiple references to %s can\'t be used in an indexed expression.' % (
+                    ','.join(map(str, self.wrapper_classes))
+                )
+            )
+        if expressions[1:len(wrappers) + 1] != wrappers:
+            raise ValueError(
+                'Indexed expressions containing %s needs to have these as topmost expressions.' % (
+                    ','.join(map(str, self.wrapper_classes))
+                )
+            )
+        # Ensure the required statement order
+        wrappers = sorted(wrappers, key=lambda w: self.wrapper_classes.index(type(w)))
+        # Wrap expressions in parentheses if they are not column references
+        root_expression = index_expressions[1]
+        root_expression = (
+            Func(root_expression, template='(%(expressions)s)')
+            if not isinstance(root_expression.resolve_expression(
+                query, allow_joins, reuse, summarize, for_save),
+                Col
+            )
+            else root_expression
+        )
+        # Re-order wrappers
+        for i, wrapper in enumerate(wrappers[:-1]):
+            wrapper.set_source_expressions([wrappers[i + 1]])
+
+        if wrappers:
+            # Set the root expression on the deepest wrapper
+            wrappers[-1].set_source_expressions([root_expression])
+            self.set_source_expressions([wrappers[0]])
+        else:
+            # No wrappers, just use the root expression
+            self.set_source_expressions([root_expression])
+        return super().resolve_expression(query, allow_joins, reuse, summarize, for_save)

@@ -59,6 +59,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     has_json_operators = True
     json_key_contains_list_matching_requires_list = True
     supports_expression_indexes = True
+    supports_index_collations = True
 
     @cached_property
     def test_collations(self):

@@ -50,6 +50,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         'non_default': 'nocase',
     }
     supports_expression_indexes = Database.sqlite_version_info >= (3, 9, 0)
+    supports_index_collations = True
 
     @cached_property
     def supports_atomic_references_rename(self):
