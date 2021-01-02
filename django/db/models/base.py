@@ -2039,6 +2039,22 @@ class Model(metaclass=ModelBase):
                         id='models.W039',
                     )
                 )
+            if not (
+                connection.features.supports_expression_indexes or
+                'supports_expression_indexes' in cls._meta.required_db_features
+            ) and any(constraint.contains_expressions for constraint in cls._meta.constraints):
+                errors.append(
+                    checks.Warning(
+                        '%s does not support unique constraints on expressions.'
+                        % connection.display_name,
+                        hint=(
+                            "A constraint won't be created. Silence this warning "
+                            "if you don't care about it."
+                        ),
+                        obj=cls,
+                        id='models.W044',
+                    )
+                )
             fields = set(chain.from_iterable(
                 (*constraint.fields, *constraint.include)
                 for constraint in cls._meta.constraints if isinstance(constraint, UniqueConstraint)
@@ -2051,6 +2067,9 @@ class Model(metaclass=ModelBase):
                         'supports_partial_indexes' not in cls._meta.required_db_features
                     ) and isinstance(constraint.condition, Q):
                         references.update(cls._get_expr_references(constraint.condition))
+                    if constraint.contains_expressions:
+                        for expression in constraint.expressions:
+                            references.update(cls._get_expr_references(expression))
                 elif isinstance(constraint, CheckConstraint):
                     if (
                         connection.features.supports_table_check_constraints or

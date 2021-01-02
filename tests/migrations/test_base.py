@@ -208,7 +208,7 @@ class OperationTestBase(MigrationTestBase):
         multicol_index=False, related_model=False, mti_model=False,
         proxy_model=False, manager_model=False, unique_together=False,
         options=False, db_table=None, index_together=False, constraints=None,
-        indexes=None,
+        indexes=None
     ):
         """Creates a test model state and database table."""
         # Make the "current" state.

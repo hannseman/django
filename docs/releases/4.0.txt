@@ -166,7 +166,10 @@ Migrations
 Models
 ~~~~~~
 
-* ...
+* The new :attr:`*expressions <django.db.models.UniqueConstraint.expressions>`
+  positional argument of :class:`UniqueConstraint() <django.db.models.UniqueConstraint>`
+  enables creating functional unique constraints on expressions and database
+  functions.
 
 Requests and Responses
 ~~~~~~~~~~~~~~~~~~~~~~

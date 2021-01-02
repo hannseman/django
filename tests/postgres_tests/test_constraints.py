@@ -1,6 +1,7 @@
 import datetime
 from unittest import mock
 
+from django.contrib.postgres.indexes import OpClass
 from django.db import (
     IntegrityError, NotSupportedError, connection, transaction,
 )
@@ -8,8 +9,8 @@ from django.db.models import (
     CheckConstraint, Deferrable, F, Func, Q, UniqueConstraint,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Left
-from django.test import skipUnlessDBFeature
+from django.db.models.functions import Left, Lower
+from django.test import modify_settings, skipUnlessDBFeature
 from django.utils import timezone
 
 from . import PostgreSQLTestCase
@@ -26,6 +27,7 @@ except ImportError:
     pass
 
 
+@modify_settings(INSTALLED_APPS={'append': 'django.contrib.postgres'})
 class SchemaTests(PostgreSQLTestCase):
     get_opclass_query = '''
         SELECT opcname, c.relname FROM pg_opclass AS oc
@@ -165,6 +167,26 @@ class SchemaTests(PostgreSQLTestCase):
                 cursor.fetchall(),
                 [('varchar_pattern_ops', constraint.name)],
             )
+
+    @skipUnlessDBFeature('supports_expression_indexes')
+    def test_opclass_func(self):
+        constraint = UniqueConstraint(
+            OpClass(Lower('scene'), name='text_pattern_ops'),
+            name='test_opclass_func',
+        )
+        with connection.schema_editor() as editor:
+            editor.add_constraint(Scene, constraint)
+        self.assertIn(constraint.name, self.get_constraints(Scene._meta.db_table))
+        with editor.connection.cursor() as cursor:
+            cursor.execute(self.get_opclass_query, [constraint.name])
+            self.assertEqual(
+                cursor.fetchall(),
+                [('text_pattern_ops', constraint.name)],
+            )
+        # Drop the constraint.
+        with connection.schema_editor() as editor:
+            editor.remove_constraint(Scene, constraint)
+        self.assertNotIn(constraint.name, self.get_constraints(Scene._meta.db_table))
 
 
 class ExclusionConstraintTests(PostgreSQLTestCase):
