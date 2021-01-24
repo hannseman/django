@@ -194,4 +194,10 @@ available from the ``django.contrib.postgres.indexes`` module.
 
     creates an index on ``Lower('username')`` using ``varchar_pattern_ops``.
 
+    It can also be used with :class:`~django.db.models.UniqueConstraint`. For example::
+
+        UniqueConstraint(OpClass('description', name='text_pattern_ops'), name='unique_description')
+
+    creates a unique constraint on ``description`` using ``text_pattern_ops``.
+
     .. _operator class: https://www.postgresql.org/docs/current/indexes-opclass.html
